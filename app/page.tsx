@@ -1,5 +1,5 @@
-import { GameDashboard } from "@/components/game/GameDashboard";
+import { GameTable } from "@/components/game/GameTable";
 
 export default function HomePage() {
-  return <GameDashboard />;
+  return <GameTable />;
 }
