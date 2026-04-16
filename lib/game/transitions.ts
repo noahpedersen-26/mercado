@@ -1,34 +1,21 @@
+import { DEPOSIT_PRINCIPAL, LOAN_PRINCIPAL, RESOURCE_IDS } from "./constants";
+import { discoveredOrAnchorPrice, maybeDiscoverNotesPrice } from "./pricing";
 import {
-  DEFAULT_DEPOSIT_INTEREST_RATE,
-  DEFAULT_LOAN_INTEREST_RATE,
-  ROUND_PHASES,
-  TURN_STEPS
-} from "./constants";
-import { recordTradePrice, syncAnchorPricesFromRoundActivity } from "./pricing";
-import { buildTurnOrder, getLeftOfChair, rotateChair } from "./turn-order";
-import type {
-  Action,
-  Deposit,
-  GameState,
-  Loan,
-  PlayerId,
-  ResourceId,
-  RoundPhase,
-  TradeRecord,
-  TurnStep,
-  UpgradeId
-} from "./types";
+  selectCurrentBankBuyer,
+  selectDiscoveredOrAnchorPrice,
+  selectLifeCostIndex,
+  selectLoanInterestDue,
+  selectMaturedDeposits,
+  selectRoleSpecialty
+} from "./selectors";
+import { buildTurnOrder, rotateChair } from "./turn-order";
+import type { Action, DepositToken, GameState, LifePaymentKind, PlayerId, RateOption, ResourceId, UpgradeCard } from "./types";
 
 function createId(prefix: string, roundNumber: number, count: number) {
   return `${prefix}-${roundNumber}-${count}`;
 }
 
-export function appendLog(
-  state: GameState,
-  action: Action,
-  actor: PlayerId | "bank" | "system",
-  message: string
-): GameState {
+function appendLog(state: GameState, actor: PlayerId | "bank" | "system", message: string): GameState {
   return {
     ...state,
     turnLog: [
@@ -38,427 +25,646 @@ export function appendLog(
         roundNumber: state.round.roundNumber,
         phase: state.round.phase,
         actor,
-        actionType: action.type,
         message
       }
     ]
   };
 }
 
-export function startRound(state: GameState): GameState {
-  const firstTurnPlayerId = getLeftOfChair(state.round.policyChairPlayerId);
-  const turnOrder = buildTurnOrder(state.round.policyChairPlayerId);
-
-  return {
-    ...state,
-    round: {
-      ...state.round,
-      firstTurnPlayerId,
-      turnOrder,
-      activeTurnIndex: 0,
-      activePlayerId: null,
-      activeTurnWindow: null,
-      hasRoundEnded: false
-    },
-    priceBook: {
-      roundNumber: state.round.roundNumber,
-      trades: [],
-      lastTradeByResource: {},
-      averageUnitPriceNotesByResource: {},
-      averageUnitPriceCoinsByResource: {}
-    }
-  };
-}
-
-export function applyPolicyRate(state: GameState, rate: number): GameState {
-  return {
-    ...state,
-    policy: {
-      ...state.policy,
-      policyRate: rate
-    }
-  };
-}
-
-export function applyDemandCardDraw(state: GameState): GameState {
-  const nextCard = state.bankDemandDeck[(state.round.roundNumber - 1) % state.bankDemandDeck.length];
-  return {
-    ...state,
-    activeDemandCardId: nextCard?.id ?? null
-  };
-}
-
-export function beginPlayerTurns(state: GameState): GameState {
-  return {
-    ...state,
-    round: {
-      ...state.round,
-      phase: "playerTurns",
-      activeTurnIndex: 0,
-      activePlayerId: state.round.turnOrder[0],
-      activeTurnWindow: {
-        playerId: state.round.turnOrder[0],
-        step: "produce",
-        actionsTaken: 0
-      }
-    }
-  };
-}
-
-export function applyProduction(
-  state: GameState,
-  playerId: PlayerId,
-  resourceId: ResourceId,
-  quantity: number
-): GameState {
-  const player = state.players[playerId];
-  const productionBonus = player.upgrades.reduce((bonus, ownedUpgrade) => {
-    if (!ownedUpgrade.isUnlocked) {
-      return bonus;
-    }
-
-    const definition = state.config.upgradeDefinitions[ownedUpgrade.upgradeId];
-    const relevantBonus = definition.effects.find(
-      (effect) => effect.type === "productionBonus" && effect.resourceId === resourceId
-    );
-    return bonus + (relevantBonus?.amount ?? 0);
-  }, 0);
-
-  const actualQuantity = quantity + productionBonus;
-
+function resetTurnActivity(state: GameState, playerId: PlayerId): GameState {
   return {
     ...state,
     players: {
       ...state.players,
       [playerId]: {
-        ...player,
-        inventory: {
-          ...player.inventory,
-          [resourceId]: player.inventory[resourceId] + actualQuantity
+        ...state.players[playerId],
+        turnActivity: {
+          normalProductionActionsUsed: 0,
+          flexProductionUsed: false,
+          loanTakenThisTurn: false,
+          depositMadeThisTurn: false,
+          upgradeBoughtThisTurn: false,
+          firstUpgradeBoostUsed: {}
         }
       }
-    },
-    resources: {
-      ...state.resources,
-      [resourceId]: {
-        ...state.resources[resourceId],
-        availableSupply: state.resources[resourceId].availableSupply + actualQuantity,
-        lastRoundProduced: state.resources[resourceId].lastRoundProduced + actualQuantity
-      }
-    },
-    round: {
-      ...state.round,
-      activeTurnWindow: state.round.activeTurnWindow
-        ? {
-            ...state.round.activeTurnWindow,
-            actionsTaken: state.round.activeTurnWindow.actionsTaken + 1
-          }
-        : null
     }
   };
 }
 
-export function applyLoanIssuance(
-  state: GameState,
-  playerId: PlayerId,
-  amount: number,
-  interestRate = DEFAULT_LOAN_INTEREST_RATE,
-  minimumPayment = Math.ceil(amount / 4)
-): GameState {
-  const player = state.players[playerId];
-  const loan: Loan = {
-    id: createId("loan", state.round.roundNumber, player.loans.length + 1),
-    playerId,
-    principal: amount,
-    interestRate,
-    minimumPayment,
-    remainingBalance: amount,
-    termRounds: 4,
-    status: "active"
-  };
-
-  return {
-    ...state,
-    players: {
-      ...state.players,
-      [playerId]: {
-        ...player,
-        notes: player.notes + amount,
-        loans: [...player.loans, loan]
-      }
-    }
-  };
-}
-
-export function applyLoanRepayment(
-  state: GameState,
-  playerId: PlayerId,
-  loanId: string,
-  amount: number
-): GameState {
-  const player = state.players[playerId];
-
-  return {
-    ...state,
-    players: {
-      ...state.players,
-      [playerId]: {
-        ...player,
-        notes: Math.max(0, player.notes - amount),
-        loans: player.loans.map((loan) =>
-          loan.id !== loanId
-            ? loan
-            : {
-                ...loan,
-                remainingBalance: Math.max(0, loan.remainingBalance - amount),
-                status: loan.remainingBalance - amount <= 0 ? "repaid" : loan.status
-              }
-        )
-      }
-    }
-  };
-}
-
-export function applyDepositChange(
-  state: GameState,
-  playerId: PlayerId,
-  kind: "create" | "withdraw",
-  amountOrDepositId: number | string,
-  interestRate = DEFAULT_DEPOSIT_INTEREST_RATE
-): GameState {
-  const player = state.players[playerId];
-
-  if (kind === "create") {
-    const amount = amountOrDepositId as number;
-    const deposit: Deposit = {
-      id: createId("deposit", state.round.roundNumber, player.deposits.length + 1),
-      playerId,
-      amount,
-      interestRate,
-      maturityRound: state.round.roundNumber + 2,
-      status: "active"
-    };
-
-    return {
-      ...state,
-      players: {
-        ...state.players,
-        [playerId]: {
-          ...player,
-          notes: Math.max(0, player.notes - amount),
-          deposits: [...player.deposits, deposit]
-        }
-      }
-    };
-  }
-
-  const depositId = amountOrDepositId as string;
-  const targetDeposit = player.deposits.find((deposit) => deposit.id === depositId);
-  const payout = targetDeposit ? targetDeposit.amount : 0;
-
-  return {
-    ...state,
-    players: {
-      ...state.players,
-      [playerId]: {
-        ...player,
-        notes: player.notes + payout,
-        deposits: player.deposits.map((deposit) =>
-          deposit.id === depositId ? { ...deposit, status: "withdrawn" } : deposit
-        )
-      }
-    }
-  };
-}
-
-export function applyUpgradePurchase(state: GameState, playerId: PlayerId, upgradeId: UpgradeId): GameState {
-  const player = state.players[playerId];
-  const upgrade = state.config.upgradeDefinitions[upgradeId];
-
-  return {
-    ...state,
-    players: {
-      ...state.players,
-      [playerId]: {
-        ...player,
-        notes: player.notes - upgrade.costNotes,
-        coins: player.coins - upgrade.costCoins,
-        upgrades: player.upgrades.map((owned) =>
-          owned.upgradeId === upgradeId ? { ...owned, isUnlocked: true } : owned
-        )
-      }
-    }
-  };
-}
-
-export function applyTrade(
-  state: GameState,
-  buyerPlayerId: PlayerId,
-  sellerPlayerId: PlayerId,
-  resourceId: ResourceId,
-  quantity: number,
-  unitPriceNotes: number,
-  unitPriceCoins: number
-): GameState {
-  const totalNotes = quantity * unitPriceNotes;
-  const totalCoins = quantity * unitPriceCoins;
-  const buyer = state.players[buyerPlayerId];
-  const seller = state.players[sellerPlayerId];
-
-  const tradeRecord: TradeRecord = {
-    id: createId("trade", state.round.roundNumber, state.priceBook.trades.length + 1),
-    roundNumber: state.round.roundNumber,
-    phase: state.round.phase,
-    buyerPlayerId,
-    sellerPlayerId,
-    resourceId,
-    quantity,
-    unitPriceNotes,
-    unitPriceCoins,
-    totalNotes,
-    totalCoins
-  };
-
-  const priceBook = recordTradePrice(state.priceBook, tradeRecord);
-
-  return {
-    ...state,
-    players: {
-      ...state.players,
-      [buyerPlayerId]: {
-        ...buyer,
-        notes: buyer.notes - totalNotes,
-        coins: buyer.coins - totalCoins,
-        inventory: {
-          ...buyer.inventory,
-          [resourceId]: buyer.inventory[resourceId] + quantity
-        }
-      },
-      [sellerPlayerId]: {
-        ...seller,
-        notes: seller.notes + totalNotes,
-        coins: seller.coins + totalCoins,
-        inventory: {
-          ...seller.inventory,
-          [resourceId]: seller.inventory[resourceId] - quantity
-        }
-      }
-    },
-    resources: {
-      ...state.resources,
-      [resourceId]: {
-        ...syncAnchorPricesFromRoundActivity(state.resources[resourceId], priceBook, resourceId),
-        lastRoundDemand: state.resources[resourceId].lastRoundDemand + quantity
-      }
-    },
-    priceBook
-  };
-}
-
-export function advanceTurnStep(state: GameState): GameState {
-  if (!state.round.activeTurnWindow) {
+function refillUpgradeRow(state: GameState): GameState {
+  if (state.upgradeMarketRow.length >= 3 || state.upgradeDeck.length === 0) {
     return state;
   }
 
-  const currentIndex = TURN_STEPS.indexOf(state.round.activeTurnWindow.step);
-  const nextStep = TURN_STEPS[Math.min(currentIndex + 1, TURN_STEPS.length - 1)];
-
+  const needed = 3 - state.upgradeMarketRow.length;
   return {
     ...state,
-    round: {
-      ...state.round,
-      activeTurnWindow: {
-        ...state.round.activeTurnWindow,
-        step: nextStep,
-        actionsTaken: 0
-      }
-    }
+    upgradeMarketRow: [...state.upgradeMarketRow, ...state.upgradeDeck.slice(0, needed)],
+    upgradeDeck: state.upgradeDeck.slice(needed)
   };
 }
 
-export function advanceToNextPlayer(state: GameState): GameState {
-  const nextIndex = state.round.activeTurnIndex + 1;
-  const nextPlayerId = state.round.turnOrder[nextIndex];
+function resetSettlement(state: GameState): GameState["round"]["settlement"] {
+  return Object.fromEntries(
+    state.playerOrder.map((playerId) => [
+      playerId,
+      {
+        lifeUnitsPaid: 0,
+        interestPaidLoanIds: []
+      }
+    ])
+  ) as GameState["round"]["settlement"];
+}
 
-  if (!nextPlayerId) {
-    return {
-      ...state,
-      round: {
-        ...state.round,
-        phase: "settlement",
-        activeTurnIndex: nextIndex,
-        activePlayerId: null,
-        activeTurnWindow: null
+function autoMatureDeposits(state: GameState): GameState {
+  let nextState = state;
+
+  for (const playerId of state.playerOrder) {
+    const matured = selectMaturedDeposits(nextState, playerId);
+
+    if (matured.length === 0) {
+      continue;
+    }
+
+    const returnedNotes = matured.reduce((sum, deposit) => sum + deposit.returnAmount, 0);
+    nextState = {
+      ...nextState,
+      players: {
+        ...nextState.players,
+        [playerId]: {
+          ...nextState.players[playerId],
+          notes: nextState.players[playerId].notes + returnedNotes,
+          deposits: nextState.players[playerId].deposits.filter((deposit) => deposit.maturesRound > nextState.round.roundNumber)
+        }
       }
     };
+
+    nextState = appendLog(
+      nextState,
+      "bank",
+      `${nextState.players[playerId].name} received ${returnedNotes} Notes from matured deposits.`
+    );
   }
 
-  return {
-    ...state,
-    round: {
-      ...state.round,
-      activeTurnIndex: nextIndex,
-      activePlayerId: nextPlayerId,
-      activeTurnWindow: {
-        playerId: nextPlayerId,
-        step: "produce",
-        actionsTaken: 0
-      }
-    }
-  };
+  return nextState;
 }
 
-export function advanceRoundPhase(state: GameState): GameState {
-  const currentIndex = ROUND_PHASES.indexOf(state.round.phase);
-  const nextPhase = ROUND_PHASES[Math.min(currentIndex + 1, ROUND_PHASES.length - 1)] as RoundPhase;
+function resolvePolicyVotes(state: GameState): RateOption {
+  const tallies = new Map<RateOption, number>([
+    [0, 0],
+    [10, 0],
+    [20, 0]
+  ]);
 
-  return {
-    ...state,
-    round: {
-      ...state.round,
-      phase: nextPhase
+  for (const rate of Object.values(state.round.policyVotes)) {
+    if (rate === undefined) {
+      continue;
     }
-  };
+
+    tallies.set(rate, (tallies.get(rate) ?? 0) + 1);
+  }
+
+  const maxVotes = Math.max(...Array.from(tallies.values()));
+  const leaders = Array.from(tallies.entries())
+    .filter(([, count]) => count === maxVotes)
+    .map(([rate]) => rate);
+
+  if (leaders.length === 1) {
+    return leaders[0];
+  }
+
+  return state.round.policyVotes[state.round.policyChairPlayerId] ?? state.round.votedRate;
 }
 
-export function closeRound(state: GameState): GameState {
-  const nextChair = rotateChair(state.round.policyChairPlayerId);
+function nextPlayerState(state: GameState): GameState {
+  const nextIndex = state.round.activePlayerIndex + 1;
+  const nextPlayerId = state.round.turnOrder[nextIndex] ?? null;
 
-  return {
-    ...state,
-    round: {
-      roundNumber: state.round.roundNumber + 1,
-      phase: "policy",
-      policyChairPlayerId: nextChair,
-      firstTurnPlayerId: getLeftOfChair(nextChair),
-      turnOrder: buildTurnOrder(nextChair),
-      activeTurnIndex: 0,
-      activePlayerId: null,
-      activeTurnWindow: null,
-      hasRoundEnded: true
-    },
-    policy: {
-      ...state.policy,
-      chairHistory: [...state.policy.chairHistory, nextChair]
-    },
-    players: Object.fromEntries(
-      Object.entries(state.players).map(([playerId, player]) => [
-        playerId,
-        {
-          ...player,
-          upgrades: player.upgrades.map((upgrade) => ({ ...upgrade, isUsedThisRound: false }))
+  if (!nextPlayerId) {
+    return appendLog(
+      {
+        ...state,
+        round: {
+          ...state.round,
+          phase: "centralBank",
+          activePlayerIndex: nextIndex,
+          activePlayerId: null,
+          activePlayerStage: null,
+          bankBuyOrderIndex: 0
         }
-      ])
-    ) as GameState["players"],
-    resources: Object.fromEntries(
-      Object.entries(state.resources).map(([resourceId, resource]) => [
-        resourceId,
-        {
-          ...resource,
-          lastRoundDemand: 0,
-          lastRoundProduced: 0
+      },
+      "system",
+      "All player turns complete. Central Bank Turn begins."
+    );
+  }
+
+  return appendLog(
+    resetTurnActivity(
+      {
+        ...state,
+        round: {
+          ...state.round,
+          activePlayerIndex: nextIndex,
+          activePlayerId: nextPlayerId,
+          activePlayerStage: "production"
         }
-      ])
-    ) as GameState["resources"]
-  };
+      },
+      nextPlayerId
+    ),
+    "system",
+    `${state.players[nextPlayerId].name} is now active.`
+  );
+}
+
+export function applyAction(state: GameState, action: Action): GameState {
+  switch (action.type) {
+    case "setPolicyVote":
+      return appendLog(
+        {
+          ...state,
+          round: {
+            ...state.round,
+            policyVotes: {
+              ...state.round.policyVotes,
+              [action.playerId]: action.rate
+            }
+          }
+        },
+        action.playerId,
+        `${state.players[action.playerId].name} voted for ${action.rate}%.`
+      );
+    case "resolvePolicyVote": {
+      const votedRate = resolvePolicyVotes(state);
+      const firstPlayerId = state.round.turnOrder[0];
+      return appendLog(
+        resetTurnActivity(
+          {
+            ...state,
+            round: {
+              ...state.round,
+              phase: "playerTurns",
+              votedRate,
+              activePlayerIndex: 0,
+              activePlayerId: firstPlayerId,
+              activePlayerStage: "production"
+            }
+          },
+          firstPlayerId
+        ),
+        "system",
+        `Policy vote resolved at ${votedRate}%. ${state.players[firstPlayerId].name} starts player turns.`
+      );
+    }
+    case "produceGood": {
+      const player = state.players[action.playerId];
+      const specialty = selectRoleSpecialty(state, action.playerId);
+      const isFlex = Boolean(action.useFlex);
+      const hasMatchingUpgrade = player.ownedUpgrades.some((upgrade) => upgrade.resourceId === action.resourceId);
+      const upgradeAlreadyUsed = player.turnActivity.firstUpgradeBoostUsed[action.resourceId] ?? false;
+      const upgradeBonus = !isFlex && hasMatchingUpgrade && !upgradeAlreadyUsed ? 1 : 0;
+      const roleBonus = !isFlex && specialty === action.resourceId ? 1 : 0;
+      const output = Math.min(3, 1 + roleBonus + upgradeBonus);
+
+      let nextState: GameState = {
+        ...state,
+        players: {
+          ...state.players,
+          [action.playerId]: {
+            ...player,
+            goods: {
+              ...player.goods,
+              [action.resourceId]: player.goods[action.resourceId] + output
+            },
+            turnActivity: {
+              ...player.turnActivity,
+              normalProductionActionsUsed: isFlex
+                ? player.turnActivity.normalProductionActionsUsed
+                : player.turnActivity.normalProductionActionsUsed + 1,
+              flexProductionUsed: isFlex ? true : player.turnActivity.flexProductionUsed,
+              firstUpgradeBoostUsed:
+                upgradeBonus > 0
+                  ? {
+                      ...player.turnActivity.firstUpgradeBoostUsed,
+                      [action.resourceId]: true
+                    }
+                  : player.turnActivity.firstUpgradeBoostUsed
+            }
+          }
+        }
+      };
+
+      nextState = appendLog(
+        nextState,
+        action.playerId,
+        `${player.name} produced ${output} ${state.config.resources[action.resourceId].name}${
+          isFlex ? " with the flex action" : ""
+        }.`
+      );
+
+      return nextState;
+    }
+    case "recordTrade": {
+      const trade = {
+        id: createId("trade", state.round.roundNumber, state.tradeLog.length + 1),
+        roundNumber: state.round.roundNumber,
+        initiatorPlayerId: action.initiatorPlayerId,
+        otherPlayerId: action.otherPlayerId,
+        resourceId: action.resourceId,
+        quantity: action.quantity,
+        totalNotes: action.totalNotes,
+        totalBits: action.totalBits,
+        discoveredNotesPrice: action.totalBits === 0 && action.totalNotes > 0 ? Math.ceil(action.totalNotes / action.quantity) : null
+      };
+
+      const buyer = state.players[action.initiatorPlayerId];
+      const seller = state.players[action.otherPlayerId];
+      const discoveredNotesPrices = maybeDiscoverNotesPrice(state, trade);
+
+      return appendLog(
+        {
+          ...state,
+          players: {
+            ...state.players,
+            [action.initiatorPlayerId]: {
+              ...buyer,
+              notes: buyer.notes - action.totalNotes,
+              bits: buyer.bits - action.totalBits,
+              goods: {
+                ...buyer.goods,
+                [action.resourceId]: buyer.goods[action.resourceId] + action.quantity
+              }
+            },
+            [action.otherPlayerId]: {
+              ...seller,
+              notes: seller.notes + action.totalNotes,
+              bits: seller.bits + action.totalBits,
+              goods: {
+                ...seller.goods,
+                [action.resourceId]: seller.goods[action.resourceId] - action.quantity
+              }
+            }
+          },
+          tradeLog: [...state.tradeLog, trade],
+          round: {
+            ...state.round,
+            discoveredNotesPrices
+          }
+        },
+        action.initiatorPlayerId,
+        `${buyer.name} traded for ${action.quantity} ${state.config.resources[action.resourceId].name} using ${action.totalNotes} Notes and ${action.totalBits} Bits.`
+      );
+    }
+    case "takeLoan": {
+      const player = state.players[action.playerId];
+
+      return appendLog(
+        {
+          ...state,
+          players: {
+            ...state.players,
+            [action.playerId]: {
+              ...player,
+              notes: player.notes + LOAN_PRINCIPAL,
+              loans: [
+                ...player.loans,
+                {
+                  id: createId("loan", state.round.roundNumber, player.loans.length + 1),
+                  issuedRound: state.round.roundNumber,
+                  principal: 10
+                }
+              ],
+              turnActivity: {
+                ...player.turnActivity,
+                loanTakenThisTurn: true
+              }
+            }
+          },
+          round: {
+            ...state.round,
+            notesCreatedThisRound: state.round.notesCreatedThisRound + LOAN_PRINCIPAL
+          }
+        },
+        action.playerId,
+        `${player.name} borrowed 10 Notes and created 1 Loan token.`
+      );
+    }
+    case "createDeposit": {
+      const player = state.players[action.playerId];
+      const returnAmount = state.round.votedRate === 20 ? 12 : state.round.votedRate === 10 ? 11 : 10;
+      const deposit: DepositToken = {
+        id: createId("deposit", state.round.roundNumber, player.deposits.length + 1),
+        issuedRound: state.round.roundNumber,
+        maturesRound: state.round.roundNumber + 1,
+        returnAmount
+      };
+
+      return appendLog(
+        {
+          ...state,
+          players: {
+            ...state.players,
+            [action.playerId]: {
+              ...player,
+              notes: player.notes - DEPOSIT_PRINCIPAL,
+              deposits: [...player.deposits, deposit],
+              turnActivity: {
+                ...player.turnActivity,
+                depositMadeThisTurn: true
+              }
+            }
+          }
+        },
+        action.playerId,
+        `${player.name} deposited 10 Notes for a locked ${returnAmount} Note return next round.`
+      );
+    }
+    case "repayLoan": {
+      const player = state.players[action.playerId];
+
+      return appendLog(
+        {
+          ...state,
+          players: {
+            ...state.players,
+            [action.playerId]: {
+              ...player,
+              notes: player.notes - LOAN_PRINCIPAL,
+              loans: player.loans.filter((loan) => loan.id !== action.loanId)
+            }
+          }
+        },
+        action.playerId,
+        `${player.name} repaid one 10 Note loan principal.`
+      );
+    }
+    case "buyUpgrade": {
+      const player = state.players[action.playerId];
+      const card = state.upgradeMarketRow.find((upgrade) => upgrade.id === action.upgradeCardId) as UpgradeCard;
+      const nextState = refillUpgradeRow({
+        ...state,
+        players: {
+          ...state.players,
+          [action.playerId]: {
+            ...player,
+            notes: player.notes - card.costNotes,
+            ownedUpgrades: [...player.ownedUpgrades, card],
+            turnActivity: {
+              ...player.turnActivity,
+              upgradeBoughtThisTurn: true
+            }
+          }
+        },
+        upgradeMarketRow: state.upgradeMarketRow.filter((upgrade) => upgrade.id !== action.upgradeCardId)
+      });
+
+      return appendLog(nextState, action.playerId, `${player.name} bought ${card.name}.`);
+    }
+    case "advancePlayerStage":
+      return appendLog(
+        {
+          ...state,
+          round: {
+            ...state.round,
+            activePlayerStage: "market"
+          }
+        },
+        "system",
+        "Player turn advanced to Market / Finance / Build."
+      );
+    case "endPlayerTurn":
+      return nextPlayerState(state);
+    case "revealBankDemandCard": {
+      const [nextCard, ...remainingDeck] = state.bankDemandDeck;
+      return appendLog(
+        {
+          ...state,
+          bankDemandDeck: remainingDeck,
+          discardedBankDemandCards: nextCard ? [...state.discardedBankDemandCards, nextCard] : state.discardedBankDemandCards,
+          round: {
+            ...state.round,
+            bankDemandCardId: nextCard?.id ?? null
+          }
+        },
+        "bank",
+        `Bank revealed demand card: ${nextCard?.title ?? "No card"}.`
+      );
+    }
+    case "bankBuy": {
+      const player = state.players[action.playerId];
+      const price = selectDiscoveredOrAnchorPrice(state, action.resourceId);
+      const payment = price * action.quantity;
+
+      return appendLog(
+        {
+          ...state,
+          players: {
+            ...state.players,
+            [action.playerId]: {
+              ...player,
+              notes: player.notes + payment,
+              goods: {
+                ...player.goods,
+                [action.resourceId]: player.goods[action.resourceId] - action.quantity
+              }
+            }
+          },
+          round: {
+            ...state.round,
+            notesCreatedThisRound: state.round.notesCreatedThisRound + payment,
+            discoveredNotesPrices: {
+              ...state.round.discoveredNotesPrices,
+              [action.resourceId]: price
+            }
+          }
+        },
+        "bank",
+        `Bank bought ${action.quantity} ${state.config.resources[action.resourceId].name} from ${player.name} for ${payment} Notes.`
+      );
+    }
+    case "advanceBankBuyer": {
+      const nextIndex = state.round.bankBuyOrderIndex + 1;
+      const nextBuyer = state.round.turnOrder[nextIndex] ?? null;
+
+      return appendLog(
+        {
+          ...state,
+          round: {
+            ...state.round,
+            phase: nextBuyer ? "centralBank" : "settlement",
+            bankBuyOrderIndex: nextIndex
+          }
+        },
+        "system",
+        nextBuyer
+          ? `Bank buying order advanced to ${state.players[nextBuyer].name}.`
+          : "Central Bank Turn complete. Move to Settlement."
+      );
+    }
+    case "payLife": {
+      const player = state.players[action.playerId];
+      const settlement = state.round.settlement[action.playerId];
+      const lifeCostIndex = selectLifeCostIndex(state);
+
+      const costUpdates =
+        action.payment === "notes"
+          ? { notes: player.notes - lifeCostIndex }
+          : {
+              goods: {
+                ...player.goods,
+                [action.payment]: player.goods[action.payment] - 1
+              }
+            };
+
+      return appendLog(
+        {
+          ...state,
+          players: {
+            ...state.players,
+            [action.playerId]: {
+              ...player,
+              ...costUpdates,
+              satisfiedUpkeepThisRound: settlement.lifeUnitsPaid + 1 >= 2
+            }
+          },
+          round: {
+            ...state.round,
+            settlement: {
+              ...state.round.settlement,
+              [action.playerId]: {
+                ...settlement,
+                lifeUnitsPaid: settlement.lifeUnitsPaid + 1
+              }
+            }
+          }
+        },
+        action.playerId,
+        `${player.name} paid 1 Life Unit with ${action.payment === "notes" ? `${lifeCostIndex} Notes` : state.config.resources[action.payment].name}.`
+      );
+    }
+    case "payLoanInterest": {
+      const player = state.players[action.playerId];
+      const due = selectLoanInterestDue(state.round.votedRate);
+      const settlement = state.round.settlement[action.playerId];
+
+      return appendLog(
+        {
+          ...state,
+          players: {
+            ...state.players,
+            [action.playerId]: {
+              ...player,
+              notes: player.notes - due
+            }
+          },
+          round: {
+            ...state.round,
+            settlement: {
+              ...state.round.settlement,
+              [action.playerId]: {
+                ...settlement,
+                interestPaidLoanIds: [...settlement.interestPaidLoanIds, action.loanId]
+              }
+            }
+          }
+        },
+        action.playerId,
+        `${player.name} paid ${due} Note interest on ${action.loanId}.`
+      );
+    }
+    case "resolveInterestShortfall": {
+      const player = state.players[action.playerId];
+      const due = selectLoanInterestDue(state.round.votedRate);
+      const remaining = Math.max(0, due - action.auctionProceeds);
+      const resourceId = RESOURCE_IDS.find((resource) => resource === action.surrenderedLabel) as ResourceId | undefined;
+
+      return appendLog(
+        {
+          ...state,
+          players: {
+            ...state.players,
+            [action.playerId]: {
+              ...player,
+              goods: resourceId
+                ? {
+                    ...player.goods,
+                    [resourceId]: Math.max(0, player.goods[resourceId] - 1)
+                  }
+                : player.goods,
+              arrears: player.arrears + remaining
+            }
+          },
+          round: {
+            ...state.round,
+            settlement: {
+              ...state.round.settlement,
+              [action.playerId]: {
+                ...state.round.settlement[action.playerId],
+                interestPaidLoanIds: [...state.round.settlement[action.playerId].interestPaidLoanIds, action.loanId]
+              }
+            }
+          }
+        },
+        "bank",
+        `${player.name} surrendered ${action.surrenderedLabel}; auction raised ${action.auctionProceeds} Notes and ${remaining} became Arrears.`
+      );
+    }
+    case "setAnchorPrice":
+      return appendLog(
+        {
+          ...state,
+          anchorNotesPrices: {
+            ...state.anchorNotesPrices,
+            [action.resourceId]: action.price
+          }
+        },
+        "system",
+        `${state.config.resources[action.resourceId].name} anchor price set to ${action.price} Notes.`
+      );
+    case "endRound": {
+      const nextChair = rotateChair(state.playerOrder, state.round.policyChairPlayerId);
+      const nextRound = state.round.roundNumber + 1;
+      const nextTurnOrder = buildTurnOrder(state.playerOrder, nextChair);
+      const withMaturedDeposits = autoMatureDeposits({
+        ...state,
+        players: Object.fromEntries(
+          Object.entries(state.players).map(([playerId, player]) => [
+            playerId,
+            {
+              ...player,
+              satisfiedUpkeepLastRound: player.satisfiedUpkeepThisRound,
+              satisfiedUpkeepThisRound: false,
+              turnActivity: {
+                normalProductionActionsUsed: 0,
+                flexProductionUsed: false,
+                loanTakenThisTurn: false,
+                depositMadeThisTurn: false,
+                upgradeBoughtThisTurn: false,
+                firstUpgradeBoostUsed: {}
+              }
+            }
+          ])
+        ) as GameState["players"],
+        round: {
+          roundNumber: nextRound,
+          phase: "policyVote",
+          policyChairPlayerId: nextChair,
+          turnOrder: nextTurnOrder,
+          activePlayerIndex: 0,
+          activePlayerId: null,
+          activePlayerStage: null,
+          policyVotes: {},
+          votedRate: state.round.votedRate,
+          discoveredNotesPrices: {},
+          bankDemandCardId: null,
+          bankBuyOrderIndex: 0,
+          notesCreatedThisRound: 0,
+          settlement: resetSettlement(state)
+        }
+      });
+
+      return appendLog(withMaturedDeposits, "system", `Round ended. Policy Chair rotated to ${state.players[nextChair].name}.`);
+    }
+    default:
+      return state;
+  }
 }

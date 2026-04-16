@@ -1,45 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type { Action, GameState, PlayerState, ResourceId, UpgradeId } from "@/lib/game/types";
+import { RESOURCE_IDS } from "@/lib/game/constants";
+import { selectLifeCostIndex, selectLoanInterestDue, selectRoleSpecialty, selectUpkeepPreview } from "@/lib/game/selectors";
+import type { Action, GameState, PlayerState, ResourceId } from "@/lib/game/types";
 import { ActionPanel } from "./ActionPanel";
 import { CurrencyToken } from "./CurrencyToken";
 import { DepositToken } from "./DepositToken";
 import { LoanToken } from "./LoanToken";
 import { ResourceTokenGroup } from "./ResourceTokenGroup";
-
-function getRoleSpecialization(state: GameState, player: PlayerState) {
-  const unlocked = player.upgrades.find((upgrade) => upgrade.isUnlocked);
-
-  if (unlocked) {
-    return state.config.upgradeDefinitions[unlocked.upgradeId].name;
-  }
-
-  const topCapacity = Object.entries(player.productionCapacity).sort((a, b) => b[1] - a[1])[0];
-
-  if (!topCapacity || topCapacity[1] === 0) {
-    return "Speculator";
-  }
-
-  return `${state.config.resourceDefinitions[topCapacity[0] as ResourceId].name} House`;
-}
-
-function getUpkeepOutlook(player: PlayerState) {
-  const totalGoods = Object.values(player.inventory).reduce((sum, value) => sum + value, 0);
-  const debtPressure = player.loans
-    .filter((loan) => loan.status === "active")
-    .reduce((sum, loan) => sum + loan.minimumPayment, 0);
-
-  if (player.notes < debtPressure) {
-    return "Distress Risk";
-  }
-
-  if (totalGoods < 4) {
-    return "Tight Supply";
-  }
-
-  return "Stable";
-}
 
 export function PlayerBoard({
   state,
@@ -51,244 +20,293 @@ export function PlayerBoard({
   dispatch: React.Dispatch<Action>;
 }) {
   const [resourceId, setResourceId] = useState<ResourceId>("grain");
-  const [quantity, setQuantity] = useState("1");
-  const [loanAmount, setLoanAmount] = useState("4");
-  const [depositAmount, setDepositAmount] = useState("3");
-  const [upgradeId, setUpgradeId] = useState<UpgradeId>("warehouse");
-  const [tradeDirection, setTradeDirection] = useState<"buy" | "sell">("buy");
-  const [tradeNotes, setTradeNotes] = useState("4");
-  const [tradeCoins, setTradeCoins] = useState("1");
-
-  const otherPlayer = Object.values(state.players).find((entry) => entry.id !== player.id) ?? player;
+  const [useFlex, setUseFlex] = useState(false);
+  const [tradeTargetId, setTradeTargetId] = useState(
+    state.playerOrder.find((playerId) => playerId !== player.id) ?? state.playerOrder[0]
+  );
+  const [tradeQuantity, setTradeQuantity] = useState("1");
+  const [tradeNotes, setTradeNotes] = useState("0");
+  const [tradeBits, setTradeBits] = useState("0");
+  const [bankSellResource, setBankSellResource] = useState<ResourceId>("lumber");
+  const [bankSellQuantity, setBankSellQuantity] = useState("1");
+  const [shortfallLoanId, setShortfallLoanId] = useState(player.loans[0]?.id ?? "");
+  const [shortfallLabel, setShortfallLabel] = useState("grain");
+  const [auctionProceeds, setAuctionProceeds] = useState("0");
+  const upkeep = selectUpkeepPreview(state, player.id);
+  const specialty = selectRoleSpecialty(state, player.id);
+  const interestDue = selectLoanInterestDue(state.round.votedRate);
   const isActive = state.round.activePlayerId === player.id;
-  const currentStep = state.round.activeTurnWindow?.step;
-  const activeLoan = player.loans.find((loan) => loan.status === "active");
-  const activeDeposit = player.deposits.find((deposit) => deposit.status === "active");
-  const roleSpecialization = getRoleSpecialization(state, player);
-  const upkeepOutlook = getUpkeepOutlook(player);
 
   return (
     <section className={`board player-board ${isActive ? "is-active-player" : ""}`}>
       <div className="board-header">
         <div>
-          <p className="eyebrow">Player Tableau</p>
+          <p className="eyebrow">Player Board</p>
           <h2>{player.name}</h2>
           <p className="board-subtitle">
-            Seat {player.seat} · Role: {roleSpecialization}
+            Role: <strong>{state.config.roles[player.role].name}</strong> · Specialty {state.config.resources[specialty].name}
           </p>
         </div>
         <div className="board-header-stats">
           <CurrencyToken label="Notes" value={player.notes} tone="ivory" />
-          <CurrencyToken label="Bits" value={player.coins} tone="brass" />
+          <CurrencyToken label="Bits" value={player.bits} tone="brass" />
+          <CurrencyToken label="Arrears" value={player.arrears} tone="red" />
         </div>
       </div>
 
       <div className="player-board-grid">
-        <ActionPanel title="Faction Card" subtitle="Specialization and standing in the round." tone="player">
+        <ActionPanel title="Goods" subtitle="Only Grain, Fuel, Lumber, and Labor exist in this prototype." tone="player">
+          <ResourceTokenGroup title="Goods" resources={player.goods} definitions={state.config.resources} tone="player" />
+        </ActionPanel>
+
+        <ActionPanel title="Role & Upkeep" subtitle="Production specialty and next life-cost pressure." tone="player">
           <div className="faction-card">
-            <div className="faction-banner">{roleSpecialization}</div>
+            <div className="faction-banner">{state.config.roles[player.role].name}</div>
+            <p>{state.config.roles[player.role].description}</p>
             <div className="faction-meta">
-              <span className={`status-chip ${isActive ? "status-chip-active" : ""}`}>
-                {isActive ? "Active Turn" : "Waiting"}
-              </span>
-              <span className="status-chip">{currentStep ?? "No turn yet"}</span>
-              <span className={`status-chip ${upkeepOutlook === "Stable" ? "status-chip-good" : "status-chip-risk"}`}>
-                {upkeepOutlook}
+              <span className="status-chip">Life Units: {upkeep.lifeUnitsRequired}</span>
+              <span className="status-chip">Life Cost: {selectLifeCostIndex(state)} Notes</span>
+              <span className={`status-chip ${upkeep.status === "coverable" ? "status-chip-good" : "status-chip-risk"}`}>
+                {upkeep.status}
               </span>
             </div>
           </div>
         </ActionPanel>
 
-        <ActionPanel title="Resources" subtitle="Personal stockpile represented as tabletop tokens." tone="player">
-          <ResourceTokenGroup
-            title="Inventory"
-            resources={player.inventory}
-            definitions={state.config.resourceDefinitions}
-            tone="player"
-          />
-        </ActionPanel>
-
-        <ActionPanel title="Production Row" subtitle="What this house can make during its produce step." tone="player">
-          <ResourceTokenGroup
-            title="Production Capacity"
-            resources={player.productionCapacity}
-            definitions={state.config.resourceDefinitions}
-            tone="capacity"
-          />
-        </ActionPanel>
-
-        <ActionPanel title="Owned Upgrades" subtitle="Purchased cards on this player mat." tone="player">
-          <div className="card-row">
-            {player.upgrades.map((upgrade) => {
-              const definition = state.config.upgradeDefinitions[upgrade.upgradeId];
-
-              return (
-                <article key={upgrade.upgradeId} className={`game-card upgrade-card ${upgrade.isUnlocked ? "owned-card" : ""}`}>
-                  <p className="game-card-kicker">Upgrade</p>
-                  <h3>{definition.name}</h3>
-                  <p>{definition.description}</p>
-                  <div className="cost-row">
-                    <span>{definition.costNotes} Notes</span>
-                    <span>{definition.costCoins} Bits</span>
-                  </div>
-                  <span className="status-chip">{upgrade.isUnlocked ? "Owned" : "Market"}</span>
-                </article>
-              );
-            })}
-          </div>
-        </ActionPanel>
-
-        <ActionPanel title="Debt & Savings" subtitle="Visible loan and deposit tokens on the player board." tone="player">
+        <ActionPanel title="Loans" subtitle={`Each loan is 10 Notes. Interest this round: ${interestDue} per loan.`} tone="player">
           <div className="token-strip">
             {player.loans.map((loan) => (
               <LoanToken key={loan.id} loan={loan} compact />
             ))}
+          </div>
+        </ActionPanel>
+
+        <ActionPanel title="Deposits" subtitle="Each deposit is 10 Notes and returns next round at issue-time rate." tone="player">
+          <div className="token-strip">
             {player.deposits.map((deposit) => (
               <DepositToken key={deposit.id} deposit={deposit} compact />
             ))}
           </div>
         </ActionPanel>
 
-        <ActionPanel title="Player Actions" subtitle="Controls live on the active player's board, not in a side admin rail." tone="player">
+        <ActionPanel title="Owned Upgrades" subtitle="Production boosts only; first matching production action each turn gets +1." tone="player">
+          <div className="card-row">
+            {player.ownedUpgrades.length === 0 ? (
+              <article className="game-card muted-card">
+                <p>No upgrades owned.</p>
+              </article>
+            ) : (
+              player.ownedUpgrades.map((upgrade) => (
+                <article key={upgrade.id} className="game-card upgrade-card owned-card">
+                  <p className="game-card-kicker">Owned Upgrade</p>
+                  <h3>{upgrade.name}</h3>
+                  <p>{upgrade.description}</p>
+                </article>
+              ))
+            )}
+          </div>
+        </ActionPanel>
+
+        <ActionPanel title="Production Step" subtitle="Two normal production actions, plus one flex action if last upkeep was fully satisfied." tone="player">
           <div className="player-action-grid">
             <label className="control-stack">
-              <span>Resource</span>
+              <span>Produce Good</span>
               <select value={resourceId} onChange={(event) => setResourceId(event.target.value as ResourceId)}>
-                {Object.keys(state.resources).map((value) => (
-                  <option key={value} value={value}>
-                    {state.config.resourceDefinitions[value as ResourceId].name}
+                {RESOURCE_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {state.config.resources[id].name}
                   </option>
                 ))}
               </select>
             </label>
-
             <label className="control-stack">
-              <span>Quantity</span>
-              <input value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" min="1" />
+              <span>Use Flex Action</span>
+              <select value={String(useFlex)} onChange={(event) => setUseFlex(event.target.value === "true")}>
+                <option value="false">No</option>
+                <option value="true">Yes</option>
+              </select>
             </label>
-
-            <div className="embedded-action-row">
-              <button
-                disabled={!isActive}
-                onClick={() =>
-                  dispatch({
-                    type: "produceResource",
-                    playerId: player.id,
-                    resourceId,
-                    quantity: Number(quantity)
-                  })
-                }
-              >
+            <div className="mini-card">
+              <p>Normal Actions Used: {player.turnActivity.normalProductionActionsUsed}/2</p>
+              <p>Flex Used: {player.turnActivity.flexProductionUsed ? "Yes" : "No"}</p>
+              <p>Last Upkeep Satisfied: {player.satisfiedUpkeepLastRound ? "Yes" : "No"}</p>
+            </div>
+            <div className="embedded-action-row embedded-action-row-wide">
+              <button onClick={() => dispatch({ type: "produceGood", playerId: player.id, resourceId, useFlex })} disabled={!isActive}>
                 Produce
               </button>
-            </div>
-
-            <label className="control-stack">
-              <span>Loan Amount</span>
-              <input value={loanAmount} onChange={(event) => setLoanAmount(event.target.value)} type="number" min="1" />
-            </label>
-
-            <label className="control-stack">
-              <span>Deposit Amount</span>
-              <input
-                value={depositAmount}
-                onChange={(event) => setDepositAmount(event.target.value)}
-                type="number"
-                min="1"
-              />
-            </label>
-
-            <div className="embedded-action-row">
-              <button disabled={!isActive} onClick={() => dispatch({ type: "takeLoan", playerId: player.id, amount: Number(loanAmount) })}>
-                Borrow
-              </button>
-              <button
-                disabled={!isActive || !activeLoan}
-                onClick={() =>
-                  activeLoan &&
-                  dispatch({
-                    type: "repayLoan",
-                    playerId: player.id,
-                    loanId: activeLoan.id,
-                    amount: Number(loanAmount)
-                  })
-                }
-              >
-                Repay
-              </button>
-              <button
-                disabled={!isActive}
-                onClick={() => dispatch({ type: "createDeposit", playerId: player.id, amount: Number(depositAmount) })}
-              >
-                Deposit
-              </button>
-              <button
-                disabled={!isActive || !activeDeposit}
-                onClick={() =>
-                  activeDeposit && dispatch({ type: "withdrawDeposit", playerId: player.id, depositId: activeDeposit.id })
-                }
-              >
-                Withdraw
+              <button onClick={() => dispatch({ type: "advancePlayerStage" })} disabled={!isActive || state.round.activePlayerStage !== "production"}>
+                Move To Market Step
               </button>
             </div>
+          </div>
+        </ActionPanel>
 
+        <ActionPanel title="Market / Finance / Build" subtitle="Active player may trade, take 1 loan, create 1 deposit, repay loans, and buy 1 upgrade." tone="player">
+          <div className="player-action-grid">
             <label className="control-stack">
-              <span>Upgrade Market Card</span>
-              <select value={upgradeId} onChange={(event) => setUpgradeId(event.target.value as UpgradeId)}>
-                {Object.entries(state.config.upgradeDefinitions).map(([value, upgrade]) => (
-                  <option key={value} value={value}>
-                    {upgrade.name}
+              <span>Trade Target</span>
+              <select value={tradeTargetId} onChange={(event) => setTradeTargetId(event.target.value)}>
+                {state.playerOrder.filter((playerId) => playerId !== player.id).map((playerId) => (
+                  <option key={playerId} value={playerId}>
+                    {state.players[playerId].name}
                   </option>
                 ))}
               </select>
             </label>
-
-            <div className="embedded-action-row">
-              <button disabled={!isActive} onClick={() => dispatch({ type: "buyUpgrade", playerId: player.id, upgradeId })}>
-                Buy Upgrade
-              </button>
-            </div>
-
             <label className="control-stack">
-              <span>Trade Direction</span>
-              <select value={tradeDirection} onChange={(event) => setTradeDirection(event.target.value as "buy" | "sell")}>
-                <option value="buy">Buy from rival</option>
-                <option value="sell">Sell to rival</option>
+              <span>Trade Good</span>
+              <select value={resourceId} onChange={(event) => setResourceId(event.target.value as ResourceId)}>
+                {RESOURCE_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {state.config.resources[id].name}
+                  </option>
+                ))}
               </select>
             </label>
-
             <label className="control-stack">
-              <span>Notes / Unit</span>
+              <span>Qty</span>
+              <input value={tradeQuantity} onChange={(event) => setTradeQuantity(event.target.value)} type="number" min="1" />
+            </label>
+            <label className="control-stack">
+              <span>Total Notes</span>
               <input value={tradeNotes} onChange={(event) => setTradeNotes(event.target.value)} type="number" min="0" />
             </label>
-
             <label className="control-stack">
-              <span>Bits / Unit</span>
-              <input value={tradeCoins} onChange={(event) => setTradeCoins(event.target.value)} type="number" min="0" />
+              <span>Total Bits</span>
+              <input value={tradeBits} onChange={(event) => setTradeBits(event.target.value)} type="number" min="0" />
             </label>
-
             <div className="embedded-action-row embedded-action-row-wide">
               <button
                 disabled={!isActive}
                 onClick={() =>
                   dispatch({
                     type: "recordTrade",
-                    buyerPlayerId: tradeDirection === "buy" ? player.id : otherPlayer.id,
-                    sellerPlayerId: tradeDirection === "buy" ? otherPlayer.id : player.id,
+                    initiatorPlayerId: player.id,
+                    otherPlayerId: tradeTargetId,
                     resourceId,
-                    quantity: Number(quantity),
-                    unitPriceNotes: Number(tradeNotes),
-                    unitPriceCoins: Number(tradeCoins)
+                    quantity: Number(tradeQuantity),
+                    totalNotes: Number(tradeNotes),
+                    totalBits: Number(tradeBits)
                   })
                 }
               >
                 Record Trade
               </button>
-              <button disabled={!isActive} onClick={() => dispatch({ type: "advanceTurnStep" })}>
-                Advance Step
+              <button disabled={!isActive} onClick={() => dispatch({ type: "takeLoan", playerId: player.id })}>
+                Borrow 10 Notes
               </button>
+              <button disabled={!isActive} onClick={() => dispatch({ type: "createDeposit", playerId: player.id })}>
+                Deposit 10 Notes
+              </button>
+            </div>
+            <div className="embedded-action-row embedded-action-row-wide">
+              {player.loans.map((loan) => (
+                <button key={loan.id} disabled={!isActive} onClick={() => dispatch({ type: "repayLoan", playerId: player.id, loanId: loan.id })}>
+                  Repay {loan.id}
+                </button>
+              ))}
+              {state.upgradeMarketRow.map((card) => (
+                <button
+                  key={card.id}
+                  disabled={!isActive}
+                  onClick={() => dispatch({ type: "buyUpgrade", playerId: player.id, upgradeCardId: card.id })}
+                >
+                  Buy {card.name}
+                </button>
+              ))}
               <button disabled={!isActive} onClick={() => dispatch({ type: "endPlayerTurn" })}>
                 End Turn
+              </button>
+            </div>
+          </div>
+        </ActionPanel>
+
+        <ActionPanel title="Settlement" subtitle="Pay 2 Life Units and settle each loan's interest at the voted rate." tone="player">
+          <div className="player-action-grid">
+            <div className="mini-card">
+              <p>Life Units Paid: {state.round.settlement[player.id].lifeUnitsPaid}/2</p>
+              <p>Interest Rate: {state.round.votedRate}%</p>
+              <p>Interest / Loan: {interestDue} Notes</p>
+            </div>
+            <div className="embedded-action-row embedded-action-row-wide">
+              <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "grain" })}>Pay Life With Grain</button>
+              <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "fuel" })}>Pay Life With Fuel</button>
+              <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "notes" })}>
+                Pay Life With {selectLifeCostIndex(state)} Notes
+              </button>
+            </div>
+            <div className="embedded-action-row embedded-action-row-wide">
+              {player.loans.map((loan) => (
+                <button key={loan.id} onClick={() => dispatch({ type: "payLoanInterest", playerId: player.id, loanId: loan.id })}>
+                  Pay Interest {loan.id}
+                </button>
+              ))}
+            </div>
+            <label className="control-stack">
+              <span>Shortfall Loan</span>
+              <select value={shortfallLoanId} onChange={(event) => setShortfallLoanId(event.target.value)}>
+                {player.loans.map((loan) => (
+                  <option key={loan.id} value={loan.id}>
+                    {loan.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="control-stack">
+              <span>Surrendered Item</span>
+              <input value={shortfallLabel} onChange={(event) => setShortfallLabel(event.target.value)} />
+            </label>
+            <label className="control-stack">
+              <span>Auction Proceeds</span>
+              <input value={auctionProceeds} onChange={(event) => setAuctionProceeds(event.target.value)} type="number" min="0" />
+            </label>
+            <div className="embedded-action-row embedded-action-row-wide">
+              <button
+                onClick={() =>
+                  dispatch({
+                    type: "resolveInterestShortfall",
+                    playerId: player.id,
+                    loanId: shortfallLoanId,
+                    surrenderedLabel: shortfallLabel,
+                    auctionProceeds: Number(auctionProceeds)
+                  })
+                }
+              >
+                Resolve Interest Shortfall
+              </button>
+            </div>
+          </div>
+        </ActionPanel>
+
+        <ActionPanel title="Bank Sale" subtitle="During Central Bank Turn, the current bank buyer sells to the bank from here." tone="player">
+          <div className="player-action-grid">
+            <label className="control-stack">
+              <span>Bank Good</span>
+              <select value={bankSellResource} onChange={(event) => setBankSellResource(event.target.value as ResourceId)}>
+                {RESOURCE_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {state.config.resources[id].name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="control-stack">
+              <span>Qty</span>
+              <input value={bankSellQuantity} onChange={(event) => setBankSellQuantity(event.target.value)} type="number" min="1" />
+            </label>
+            <div className="embedded-action-row embedded-action-row-wide">
+              <button
+                onClick={() =>
+                  dispatch({
+                    type: "bankBuy",
+                    playerId: player.id,
+                    resourceId: bankSellResource,
+                    quantity: Number(bankSellQuantity)
+                  })
+                }
+              >
+                Sell To Bank
               </button>
             </div>
           </div>

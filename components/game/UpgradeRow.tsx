@@ -1,21 +1,21 @@
-import type { GameState } from "@/lib/game/types";
+import type { UpgradeCard } from "@/lib/game/types";
 
-export function UpgradeRow({ state }: { state: GameState }) {
+export function UpgradeRow({ cards }: { cards: UpgradeCard[] }) {
   return (
     <section>
       <div className="zone-heading">
         <h3>Upgrade Market Row</h3>
-        <p>Visible market cards available for purchase from player boards.</p>
+        <p>Three face-up production upgrades. Refill when purchased.</p>
       </div>
       <div className="card-row">
-        {Object.values(state.config.upgradeDefinitions).map((upgrade) => (
-          <article key={upgrade.id} className="game-card upgrade-card">
-            <p className="game-card-kicker">Upgrade Market</p>
-            <h3>{upgrade.name}</h3>
-            <p>{upgrade.description}</p>
+        {cards.map((card) => (
+          <article key={card.id} className="game-card upgrade-card">
+            <p className="game-card-kicker">Upgrade Card</p>
+            <h3>{card.name}</h3>
+            <p>{card.description}</p>
             <div className="cost-row">
-              <span>{upgrade.costNotes} Notes</span>
-              <span>{upgrade.costCoins} Bits</span>
+              <span>{card.costNotes} Notes</span>
+              <span>First matching action only</span>
             </div>
           </article>
         ))}

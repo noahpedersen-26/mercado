@@ -1,50 +1,69 @@
 import { RESOURCE_IDS } from "./constants";
-import type { GameState, PlayerId, ResourceId, TurnStep } from "./types";
+import type { GameState, PlayerId, RateOption, ResourceId } from "./types";
 
-export function selectCurrentPlayer(state: GameState) {
-  return state.round.activePlayerId ? state.players[state.round.activePlayerId] : null;
+export function selectRoleSpecialty(state: GameState, playerId: PlayerId): ResourceId {
+  return state.config.roles[state.players[playerId].role].specialty;
 }
 
-export function selectCurrentTurnStep(state: GameState): TurnStep | null {
-  return state.round.activeTurnWindow?.step ?? null;
+export function selectLifeCostIndex(state: GameState): number {
+  return Math.ceil((state.anchorNotesPrices.grain + state.anchorNotesPrices.fuel) / 2);
 }
 
-export function selectTurnOrder(state: GameState): PlayerId[] {
-  return state.round.turnOrder;
+export function selectLoanInterestDue(rate: RateOption): number {
+  if (rate === 10) {
+    return 1;
+  }
+
+  if (rate === 20) {
+    return 2;
+  }
+
+  return 0;
 }
 
-export function selectRoundTradeHistory(state: GameState) {
-  return state.priceBook.trades;
+export function selectDiscoveredOrAnchorPrice(state: GameState, resourceId: ResourceId): number {
+  return state.round.discoveredNotesPrices[resourceId] ?? state.anchorNotesPrices[resourceId];
 }
 
-export function selectAveragePricesByResource(state: GameState) {
+export function selectCurrentBankBuyer(state: GameState): PlayerId | null {
+  return state.round.turnOrder[state.round.bankBuyOrderIndex] ?? null;
+}
+
+export function selectMaturedDeposits(state: GameState, playerId: PlayerId) {
+  return state.players[playerId].deposits.filter((deposit) => deposit.maturesRound <= state.round.roundNumber);
+}
+
+export function selectNotesCreatedBreakdown(state: GameState) {
+  const loanNotes = state.tradeLog.length;
   return {
-    notes: state.priceBook.averageUnitPriceNotesByResource,
-    coins: state.priceBook.averageUnitPriceCoinsByResource
+    total: state.round.notesCreatedThisRound,
+    loansIssued: state.turnLog.filter((entry) => entry.message.includes("borrowed 10 Notes")).length,
+    bankPurchases: state.turnLog.filter((entry) => entry.message.includes("Bank bought")).length,
+    debugTradeCount: loanNotes
   };
 }
 
-export function selectOutstandingLoans(state: GameState) {
-  return Object.values(state.players).flatMap((player) => player.loans.filter((loan) => loan.status === "active"));
+export function selectUpkeepPreview(state: GameState, playerId: PlayerId) {
+  const player = state.players[playerId];
+  const lifeCostIndex = selectLifeCostIndex(state);
+  const grainFuelUnits = player.goods.grain + player.goods.fuel;
+
+  return {
+    lifeUnitsRequired: 2,
+    grainFuelUnits,
+    notesEquivalent: lifeCostIndex,
+    status: grainFuelUnits >= 2 || player.notes >= lifeCostIndex * 2 ? "coverable" : "tight"
+  };
 }
 
-export function selectOutstandingDeposits(state: GameState) {
-  return Object.values(state.players).flatMap((player) =>
-    player.deposits.filter((deposit) => deposit.status === "active")
-  );
-}
-
-export function selectLifeCostIndex(state: GameState) {
-  const weightedTotal = RESOURCE_IDS.reduce((sum, resourceId) => {
-    const resourceDef = state.config.resourceDefinitions[resourceId];
-    const resourceState = state.resources[resourceId];
-    const compositePrice = resourceState.anchorPriceNotes + resourceState.anchorPriceCoins;
-    return sum + compositePrice * resourceDef.lifeCostWeight;
-  }, 0);
-
-  return Number(weightedTotal.toFixed(2));
-}
-
-export function selectResourceLabel(state: GameState, resourceId: ResourceId) {
-  return state.config.resourceDefinitions[resourceId].name;
+export function selectVisibleNotesPrices(state: GameState) {
+  return Object.fromEntries(
+    RESOURCE_IDS.map((resourceId) => [
+      resourceId,
+      {
+        anchor: state.anchorNotesPrices[resourceId],
+        discovered: state.round.discoveredNotesPrices[resourceId] ?? null
+      }
+    ])
+  ) as Record<ResourceId, { anchor: number; discovered: number | null }>;
 }

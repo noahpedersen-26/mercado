@@ -1,219 +1,170 @@
-export type PlayerId = "player-1" | "player-2";
-export type ResourceId = "grain" | "wood" | "iron" | "energy";
-export type UpgradeId = "mill" | "forge" | "warehouse" | "mint-press";
-export type LoanId = string;
-export type DepositId = string;
-export type BankDemandCardId = string;
-export type TradeRecordId = string;
-export type TurnLogEntryId = string;
-
-export type SeatPosition = 0 | 1;
-
-export type RoundPhase =
-  | "policy"
-  | "playerTurns"
-  | "settlement"
-  | "upkeep"
-  | "roundEnd";
-
-export type TurnStep = "produce" | "finance" | "upgrades" | "trade" | "complete";
-
-export type ActorId = PlayerId | "bank" | "system";
+export type PlayerId = string;
+export type ResourceId = "grain" | "fuel" | "lumber" | "labor";
+export type RoleId = "farmer" | "refiner" | "builder" | "organizer";
+export type RateOption = 0 | 10 | 20;
+export type RoundPhase = "policyVote" | "playerTurns" | "centralBank" | "settlement" | "repricing";
+export type PlayerTurnStage = "production" | "market";
+export type UpgradeType = "grain-mill" | "fuel-rig" | "sawmill" | "hiring-office";
+export type LifePaymentKind = "grain" | "fuel" | "notes";
 
 export interface ResourceDefinition {
   id: ResourceId;
   name: string;
-  category: "food" | "materials" | "industry" | "utility";
-  baseAnchorPriceNotes: number;
-  baseAnchorPriceCoins: number;
-  startingSupply: number;
-  lifeCostWeight: number;
-  canBeProduced: boolean;
+  shortLabel: string;
 }
 
-export interface ResourceMarketState {
-  resourceId: ResourceId;
-  anchorPriceNotes: number;
-  anchorPriceCoins: number;
-  availableSupply: number;
-  lastRoundDemand: number;
-  lastRoundProduced: number;
-}
-
-export type Inventory = Record<ResourceId, number>;
-export type ProductionCapacity = Record<ResourceId, number>;
-
-export interface UpgradeEffect {
-  type: "productionBonus" | "priceSupport" | "depositBonus";
-  resourceId?: ResourceId;
-  amount: number;
-}
-
-export interface UpgradeDefinition {
-  id: UpgradeId;
+export interface RoleDefinition {
+  id: RoleId;
   name: string;
-  costNotes: number;
-  costCoins: number;
+  specialty: ResourceId;
   description: string;
-  effects: UpgradeEffect[];
 }
 
-export interface PlayerUpgradeState {
-  upgradeId: UpgradeId;
-  isUnlocked: boolean;
-  isUsedThisRound: boolean;
+export interface UpgradeCard {
+  id: string;
+  type: UpgradeType;
+  name: string;
+  resourceId: ResourceId;
+  description: string;
+  costNotes: number;
 }
 
-export interface Loan {
-  id: LoanId;
-  playerId: PlayerId;
-  principal: number;
-  interestRate: number;
-  minimumPayment: number;
-  remainingBalance: number;
-  termRounds?: number;
-  status: "active" | "repaid";
+export interface LoanToken {
+  id: string;
+  issuedRound: number;
+  principal: 10;
 }
 
-export interface Deposit {
-  id: DepositId;
-  playerId: PlayerId;
-  amount: number;
-  interestRate: number;
-  maturityRound?: number;
-  status: "active" | "withdrawn";
+export interface DepositToken {
+  id: string;
+  issuedRound: number;
+  maturesRound: number;
+  returnAmount: 10 | 11 | 12;
 }
 
 export interface BankDemandCard {
-  id: BankDemandCardId;
+  id: string;
   title: string;
   description: string;
-  resourceDemand: Partial<Record<ResourceId, number>>;
-  payoutMultiplier: number;
-  policyBias?: "tighten" | "ease" | "neutral";
-}
-
-export interface TradeQuote {
-  resourceId: ResourceId;
-  quantity: number;
-  unitPriceNotes: number;
-  unitPriceCoins: number;
+  demand: Partial<Record<ResourceId, number>>;
 }
 
 export interface TradeRecord {
-  id: TradeRecordId;
+  id: string;
   roundNumber: number;
-  phase: RoundPhase;
-  buyerPlayerId: PlayerId;
-  sellerPlayerId: PlayerId;
+  initiatorPlayerId: PlayerId;
+  otherPlayerId: PlayerId;
   resourceId: ResourceId;
   quantity: number;
-  unitPriceNotes: number;
-  unitPriceCoins: number;
   totalNotes: number;
-  totalCoins: number;
+  totalBits: number;
+  discoveredNotesPrice: number | null;
 }
 
-export interface RoundPriceBook {
-  roundNumber: number;
-  trades: TradeRecord[];
-  lastTradeByResource: Partial<Record<ResourceId, TradeRecord>>;
-  averageUnitPriceNotesByResource: Partial<Record<ResourceId, number>>;
-  averageUnitPriceCoinsByResource: Partial<Record<ResourceId, number>>;
+export interface TurnActivity {
+  normalProductionActionsUsed: number;
+  flexProductionUsed: boolean;
+  loanTakenThisTurn: boolean;
+  depositMadeThisTurn: boolean;
+  upgradeBoughtThisTurn: boolean;
+  firstUpgradeBoostUsed: Partial<Record<ResourceId, boolean>>;
 }
 
-export interface PolicyState {
-  policyRate: number;
-  lifeCostIndex: number;
-  priceLevel: number;
-  chairHistory: PlayerId[];
+export interface PlayerState {
+  id: PlayerId;
+  name: string;
+  role: RoleId;
+  notes: number;
+  bits: number;
+  goods: Record<ResourceId, number>;
+  loans: LoanToken[];
+  deposits: DepositToken[];
+  arrears: number;
+  ownedUpgrades: UpgradeCard[];
+  satisfiedUpkeepLastRound: boolean;
+  satisfiedUpkeepThisRound: boolean;
+  turnActivity: TurnActivity;
 }
 
-export interface TurnWindow {
-  playerId: PlayerId;
-  step: TurnStep;
-  actionsTaken: number;
+export interface SettlementState {
+  lifeUnitsPaid: number;
+  interestPaidLoanIds: string[];
 }
 
 export interface RoundState {
   roundNumber: number;
   phase: RoundPhase;
   policyChairPlayerId: PlayerId;
-  firstTurnPlayerId: PlayerId;
   turnOrder: PlayerId[];
-  activeTurnIndex: number;
+  activePlayerIndex: number;
   activePlayerId: PlayerId | null;
-  activeTurnWindow: TurnWindow | null;
-  hasRoundEnded: boolean;
-}
-
-export interface PlayerState {
-  id: PlayerId;
-  name: string;
-  seat: SeatPosition;
-  notes: number;
-  coins: number;
-  inventory: Inventory;
-  loans: Loan[];
-  deposits: Deposit[];
-  upgrades: PlayerUpgradeState[];
-  productionCapacity: ProductionCapacity;
-}
-
-export interface GameConfig {
-  resourceDefinitions: Record<ResourceId, ResourceDefinition>;
-  upgradeDefinitions: Record<UpgradeId, UpgradeDefinition>;
-  playerOrder: PlayerId[];
+  activePlayerStage: PlayerTurnStage | null;
+  policyVotes: Partial<Record<PlayerId, RateOption>>;
+  votedRate: RateOption;
+  discoveredNotesPrices: Partial<Record<ResourceId, number>>;
+  bankDemandCardId: string | null;
+  bankBuyOrderIndex: number;
+  notesCreatedThisRound: number;
+  settlement: Record<PlayerId, SettlementState>;
 }
 
 export interface TurnLogEntry {
-  id: TurnLogEntryId;
+  id: string;
   roundNumber: number;
   phase: RoundPhase;
-  actor: ActorId;
+  actor: PlayerId | "bank" | "system";
   message: string;
-  actionType: Action["type"];
+}
+
+export interface GameConfig {
+  resources: Record<ResourceId, ResourceDefinition>;
+  roles: Record<RoleId, RoleDefinition>;
 }
 
 export interface GameState {
   config: GameConfig;
-  round: RoundState;
-  policy: PolicyState;
   players: Record<PlayerId, PlayerState>;
-  resources: Record<ResourceId, ResourceMarketState>;
+  playerOrder: PlayerId[];
+  round: RoundState;
+  anchorNotesPrices: Record<ResourceId, number>;
   bankDemandDeck: BankDemandCard[];
-  activeDemandCardId: BankDemandCardId | null;
-  priceBook: RoundPriceBook;
+  discardedBankDemandCards: BankDemandCard[];
+  upgradeDeck: UpgradeCard[];
+  upgradeMarketRow: UpgradeCard[];
+  tradeLog: TradeRecord[];
   turnLog: TurnLogEntry[];
 }
 
-export interface ActionResult {
-  ok: boolean;
-  reason?: string;
-}
-
 export type Action =
-  | { type: "startRound" }
-  | { type: "rotateChair" }
-  | { type: "setPolicyRate"; rate: number }
-  | { type: "drawDemandCard" }
-  | { type: "startPlayerTurns" }
-  | { type: "produceResource"; playerId: PlayerId; resourceId: ResourceId; quantity: number }
-  | { type: "takeLoan"; playerId: PlayerId; amount: number; interestRate?: number; minimumPayment?: number }
-  | { type: "repayLoan"; playerId: PlayerId; loanId: LoanId; amount: number }
-  | { type: "createDeposit"; playerId: PlayerId; amount: number; interestRate?: number }
-  | { type: "withdrawDeposit"; playerId: PlayerId; depositId: DepositId }
-  | { type: "buyUpgrade"; playerId: PlayerId; upgradeId: UpgradeId }
+  | { type: "setPolicyVote"; playerId: PlayerId; rate: RateOption }
+  | { type: "resolvePolicyVote" }
+  | { type: "produceGood"; playerId: PlayerId; resourceId: ResourceId; useFlex?: boolean }
   | {
       type: "recordTrade";
-      buyerPlayerId: PlayerId;
-      sellerPlayerId: PlayerId;
+      initiatorPlayerId: PlayerId;
+      otherPlayerId: PlayerId;
       resourceId: ResourceId;
       quantity: number;
-      unitPriceNotes: number;
-      unitPriceCoins: number;
+      totalNotes: number;
+      totalBits: number;
     }
-  | { type: "advanceTurnStep" }
+  | { type: "takeLoan"; playerId: PlayerId }
+  | { type: "createDeposit"; playerId: PlayerId }
+  | { type: "repayLoan"; playerId: PlayerId; loanId: string }
+  | { type: "buyUpgrade"; playerId: PlayerId; upgradeCardId: string }
+  | { type: "advancePlayerStage" }
   | { type: "endPlayerTurn" }
-  | { type: "advancePhase" }
+  | { type: "revealBankDemandCard" }
+  | { type: "bankBuy"; playerId: PlayerId; resourceId: ResourceId; quantity: number }
+  | { type: "advanceBankBuyer" }
+  | { type: "payLife"; playerId: PlayerId; payment: LifePaymentKind }
+  | { type: "payLoanInterest"; playerId: PlayerId; loanId: string }
+  | {
+      type: "resolveInterestShortfall";
+      playerId: PlayerId;
+      loanId: string;
+      surrenderedLabel: string;
+      auctionProceeds: number;
+    }
+  | { type: "setAnchorPrice"; resourceId: ResourceId; price: number }
   | { type: "endRound" };

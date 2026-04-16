@@ -1,126 +1,161 @@
 "use client";
 
 import { useState } from "react";
+import { POLICY_OPTIONS, RESOURCE_IDS } from "@/lib/game/constants";
+import { selectCurrentBankBuyer, selectLifeCostIndex, selectNotesCreatedBreakdown, selectVisibleNotesPrices } from "@/lib/game/selectors";
 import { getLeftOfChair } from "@/lib/game/turn-order";
-import type { Action, Deposit, GameState, Loan, ResourceId } from "@/lib/game/types";
+import type { Action, GameState, PlayerId, RateOption, ResourceId } from "@/lib/game/types";
 import { ActionPanel } from "./ActionPanel";
 import { BankDemandCard } from "./BankDemandCard";
 import { CurrencyToken } from "./CurrencyToken";
-import { DepositToken } from "./DepositToken";
-import { LoanToken } from "./LoanToken";
+import { PolicyTrack } from "./PolicyTrack";
 import { PriceTrack } from "./PriceTrack";
 import { ResourceTokenGroup } from "./ResourceTokenGroup";
 import { TurnTrack } from "./TurnTrack";
-import { PolicyTrack } from "./PolicyTrack";
 import { UpgradeRow } from "./UpgradeRow";
 
 export function MarketBankBoard({
   state,
-  dispatch,
-  lifeCostIndex,
-  priceAverages,
-  loans,
-  deposits
+  dispatch
 }: {
   state: GameState;
   dispatch: React.Dispatch<Action>;
-  lifeCostIndex: number;
-  priceAverages: {
-    notes: Partial<Record<ResourceId, number>>;
-    coins: Partial<Record<ResourceId, number>>;
-  };
-  loans: Loan[];
-  deposits: Deposit[];
 }) {
-  const [rateInput, setRateInput] = useState(state.policy.policyRate.toString());
-  const chair = state.players[state.round.policyChairPlayerId];
-  const leftOfChair = state.players[getLeftOfChair(state.round.policyChairPlayerId)];
-  const activeCard = state.bankDemandDeck.find((card) => card.id === state.activeDemandCardId) ?? null;
+  const [repricingResource, setRepricingResource] = useState<ResourceId>("grain");
+  const [repricingValue, setRepricingValue] = useState(String(state.anchorNotesPrices.grain));
+  const lifeCostIndex = selectLifeCostIndex(state);
+  const prices = selectVisibleNotesPrices(state);
+  const currentBankBuyer = selectCurrentBankBuyer(state);
+  const notesCreated = selectNotesCreatedBreakdown(state);
+  const activeDemandCard =
+    state.bankDemandDeck.find((card) => card.id === state.round.bankDemandCardId) ??
+    state.discardedBankDemandCards.find((card) => card.id === state.round.bankDemandCardId) ??
+    null;
 
   return (
     <section className="board shared-board">
       <div className="board-header">
         <div>
-          <p className="eyebrow">Shared Table</p>
+          <p className="eyebrow">Shared Board</p>
           <h2>Market / Bank Board</h2>
+          <p className="board-subtitle">Policy vote, Notes prices, bank demand, upgrade row, and repricing pressure.</p>
         </div>
         <div className="board-header-stats">
-          <CurrencyToken label="Life Cost" value={lifeCostIndex.toFixed(2)} tone="ivory" />
-          <CurrencyToken label="Policy Rate" value={`${state.policy.policyRate.toFixed(2)}%`} tone="red" />
+          <CurrencyToken label="Life Cost Index" value={lifeCostIndex} tone="ivory" />
+          <CurrencyToken label="Voted Rate" value={`${state.round.votedRate}%`} tone="red" />
+          <CurrencyToken label="Notes Created" value={state.round.notesCreatedThisRound} tone="brass" />
         </div>
       </div>
 
       <div className="shared-board-grid">
         <div className="board-zone board-zone-main">
           <TurnTrack state={state} />
-          <PolicyTrack
-            chairName={chair.name}
-            leftOfChairName={leftOfChair.name}
-            rateInput={rateInput}
-            setRateInput={setRateInput}
-            onApplyRate={() => dispatch({ type: "setPolicyRate", rate: Number(rateInput) })}
-          />
-          <BankDemandCard card={activeCard} />
-          <PriceTrack state={state} priceAverages={priceAverages} />
+          <PolicyTrack state={state} />
+          <BankDemandCard card={activeDemandCard} />
+          <PriceTrack prices={prices} definitions={state.config.resources} />
         </div>
 
         <div className="board-zone board-zone-side">
-          <ActionPanel
-            title="Bank Actions"
-            subtitle="Round and policy controls live on the central board."
-            tone="bank"
-          >
-            <div className="action-grid">
-              <button onClick={() => dispatch({ type: "startRound" })}>Open Round</button>
-              <button onClick={() => dispatch({ type: "drawDemandCard" })}>Reveal Demand</button>
-              <button onClick={() => dispatch({ type: "rotateChair" })}>Rotate Chair</button>
-              <button onClick={() => dispatch({ type: "startPlayerTurns" })}>Begin Player Turns</button>
-              <button onClick={() => dispatch({ type: "advancePhase" })}>Advance Phase</button>
-              <button onClick={() => dispatch({ type: "endRound" })}>Close Round</button>
+          <ActionPanel title="Policy Vote" subtitle="Each player votes 0%, 10%, or 20%. The chair breaks ties." tone="bank">
+            <div className="vote-row">
+              {state.playerOrder.map((playerId) => (
+                <div key={playerId} className="track-card">
+                  <span className="track-label">{state.players[playerId].name}</span>
+                  <div className="embedded-action-row">
+                    {POLICY_OPTIONS.map((option) => (
+                      <button key={option} onClick={() => dispatch({ type: "setPolicyVote", playerId, rate: option })}>
+                        {option}%
+                      </button>
+                    ))}
+                  </div>
+                  <p className="tiny-note">Vote: {state.round.policyVotes[playerId] ?? "-"}</p>
+                </div>
+              ))}
+              <button onClick={() => dispatch({ type: "resolvePolicyVote" })}>Resolve Vote</button>
             </div>
           </ActionPanel>
 
-          <ActionPanel title="Bank Reserves" subtitle="Outstanding paper, savings, and tracked supply." tone="bank">
-            <div className="token-bank-row">
-              <CurrencyToken
-                label="Notes In Play"
-                value={Object.values(state.players).reduce((sum, player) => sum + player.notes, 0)}
-                tone="ivory"
-              />
-              <CurrencyToken
-                label="Bits / Coins"
-                value={Object.values(state.players).reduce((sum, player) => sum + player.coins, 0)}
-                tone="brass"
-              />
+          <ActionPanel title="Central Bank Area" subtitle="Reveal demand, buy in order from left of chair, then advance." tone="bank">
+            <div className="mini-card">
+              <p>
+                Policy Chair: <strong>{state.players[state.round.policyChairPlayerId].name}</strong>
+              </p>
+              <p>
+                Left of Chair: <strong>{state.players[getLeftOfChair(state.playerOrder, state.round.policyChairPlayerId)].name}</strong>
+              </p>
+              <p>
+                Current Bank Buyer: <strong>{currentBankBuyer ? state.players[currentBankBuyer].name : "None"}</strong>
+              </p>
             </div>
-            <ResourceTokenGroup
-              title="Available Supply"
-              resources={Object.fromEntries(
-                Object.entries(state.resources).map(([resourceId, resource]) => [resourceId, resource.availableSupply])
-              ) as Record<ResourceId, number>}
-              definitions={state.config.resourceDefinitions}
-              tone="supply"
-            />
+            <div className="action-grid">
+              <button onClick={() => dispatch({ type: "revealBankDemandCard" })}>Reveal Bank Demand</button>
+              <button onClick={() => dispatch({ type: "advanceBankBuyer" })}>Advance Bank Buyer</button>
+            </div>
+          </ActionPanel>
+
+          <ActionPanel title="Repricing Track" subtitle="Track Notes expansion and manually update anchors in repricing." tone="bank">
+            <div className="token-bank-row">
+              <CurrencyToken label="Loans Issued" value={notesCreated.loansIssued} tone="ivory" />
+              <CurrencyToken label="Bank Buys" value={notesCreated.bankPurchases} tone="ivory" />
+              <CurrencyToken label="Notes Created" value={notesCreated.total} tone="brass" />
+            </div>
+            <label className="control-stack">
+              <span>Anchor Good</span>
+              <select value={repricingResource} onChange={(event) => setRepricingResource(event.target.value as ResourceId)}>
+                {RESOURCE_IDS.map((resourceId) => (
+                  <option key={resourceId} value={resourceId}>
+                    {state.config.resources[resourceId].name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="control-stack">
+              <span>New Anchor Notes Price</span>
+              <input value={repricingValue} onChange={(event) => setRepricingValue(event.target.value)} type="number" min="1" />
+            </label>
+            <div className="embedded-action-row">
+              <button
+                onClick={() =>
+                  dispatch({
+                    type: "setAnchorPrice",
+                    resourceId: repricingResource,
+                    price: Number(repricingValue)
+                  })
+                }
+              >
+                Set Anchor
+              </button>
+              <button onClick={() => dispatch({ type: "endRound" })}>End Round / Rotate Chair</button>
+            </div>
           </ActionPanel>
         </div>
 
         <div className="board-zone board-zone-full">
-          <UpgradeRow state={state} />
+          <UpgradeRow cards={state.upgradeMarketRow} />
         </div>
 
         <div className="board-zone board-zone-bank">
-          <ActionPanel title="Loans" subtitle="Visible debt tokens in the bank reserve." tone="bank">
-            <div className="token-strip">
-              {loans.map((loan) => (
-                <LoanToken key={loan.id} loan={loan} />
-              ))}
-            </div>
+          <ActionPanel title="Bank Buying Targets" subtitle="Demand skews toward Lumber and Labor, with some Fuel and rare Grain." tone="bank">
+            <ResourceTokenGroup
+              title="Current Demand"
+              resources={{
+                grain: activeDemandCard?.demand.grain ?? 0,
+                fuel: activeDemandCard?.demand.fuel ?? 0,
+                lumber: activeDemandCard?.demand.lumber ?? 0,
+                labor: activeDemandCard?.demand.labor ?? 0
+              }}
+              definitions={state.config.resources}
+              tone="supply"
+            />
           </ActionPanel>
 
-          <ActionPanel title="Deposits" subtitle="Savings claims waiting in the bank." tone="bank">
-            <div className="token-strip">
-              {deposits.map((deposit) => (
-                <DepositToken key={deposit.id} deposit={deposit} />
+          <ActionPanel title="Discovered Notes Prices" subtitle="Bank pays latest discovered Notes price this round or anchor if none." tone="bank">
+            <div className="price-summary-list">
+              {RESOURCE_IDS.map((resourceId) => (
+                <div key={resourceId} className="table-row">
+                  <span>{state.config.resources[resourceId].name}</span>
+                  <strong>{prices[resourceId].discovered ?? prices[resourceId].anchor} Notes</strong>
+                </div>
               ))}
             </div>
           </ActionPanel>

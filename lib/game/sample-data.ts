@@ -1,254 +1,225 @@
-import { DEFAULT_POLICY_RATE, PLAYER_ORDER, RESOURCE_IDS } from "./constants";
-import { buildTurnOrder, getLeftOfChair } from "./turn-order";
-import type { GameState, Inventory, ProductionCapacity } from "./types";
+import { RESOURCE_IDS } from "./constants";
+import { buildTurnOrder } from "./turn-order";
+import type {
+  BankDemandCard,
+  DepositToken,
+  GameState,
+  LoanToken,
+  PlayerState,
+  ResourceId,
+  RoleId,
+  UpgradeCard
+} from "./types";
 
-const emptyInventory = (): Inventory => ({
-  grain: 0,
-  wood: 0,
-  iron: 0,
-  energy: 0
-});
+function goods(values: Partial<Record<ResourceId, number>>) {
+  return {
+    grain: 0,
+    fuel: 0,
+    lumber: 0,
+    labor: 0,
+    ...values
+  };
+}
 
-const inventory = (values: Partial<Inventory>): Inventory => ({
-  ...emptyInventory(),
-  ...values
-});
+function loanToken(id: string, issuedRound: number): LoanToken {
+  return {
+    id,
+    issuedRound,
+    principal: 10
+  };
+}
 
-const capacity = (values: Partial<ProductionCapacity>): ProductionCapacity => ({
-  grain: 0,
-  wood: 0,
-  iron: 0,
-  energy: 0,
-  ...values
-});
+function depositToken(id: string, issuedRound: number, returnAmount: 10 | 11 | 12): DepositToken {
+  return {
+    id,
+    issuedRound,
+    maturesRound: issuedRound + 1,
+    returnAmount
+  };
+}
 
-const initialChair = "player-1" as const;
+function upgradeCard(id: string, type: UpgradeCard["type"], name: string, resourceId: ResourceId): UpgradeCard {
+  return {
+    id,
+    type,
+    name,
+    resourceId,
+    description: `+1 on the first ${resourceId} production action each turn, up to max 3 output.`,
+    costNotes: 8
+  };
+}
+
+function player(id: string, name: string, role: RoleId, overrides: Partial<PlayerState>): PlayerState {
+  return {
+    id,
+    name,
+    role,
+    notes: 12,
+    bits: 6,
+    goods: goods({}),
+    loans: [],
+    deposits: [],
+    arrears: 0,
+    ownedUpgrades: [],
+    satisfiedUpkeepLastRound: false,
+    satisfiedUpkeepThisRound: false,
+    turnActivity: {
+      normalProductionActionsUsed: 0,
+      flexProductionUsed: false,
+      loanTakenThisTurn: false,
+      depositMadeThisTurn: false,
+      upgradeBoughtThisTurn: false,
+      firstUpgradeBoostUsed: {}
+    },
+    ...overrides
+  };
+}
+
+const demandDeck: BankDemandCard[] = [
+  {
+    id: "housing-push",
+    title: "Housing Push",
+    description: "The bank buys Lumber and Labor for housing programs.",
+    demand: { lumber: 2, labor: 2 }
+  },
+  {
+    id: "infrastructure-program",
+    title: "Infrastructure Program",
+    description: "The bank buys Lumber, Labor, and some Fuel.",
+    demand: { lumber: 2, labor: 2, fuel: 1 }
+  },
+  {
+    id: "energy-relief",
+    title: "Energy Relief",
+    description: "The bank buys Fuel for relief support.",
+    demand: { fuel: 2 }
+  },
+  {
+    id: "food-support",
+    title: "Food Support",
+    description: "The bank buys Grain for emergency support.",
+    demand: { grain: 2 }
+  },
+  {
+    id: "tightening",
+    title: "Tightening",
+    description: "The bank buys little or nothing this round.",
+    demand: {}
+  }
+];
+
+const upgradeDeck: UpgradeCard[] = [
+  upgradeCard("grain-mill-a", "grain-mill", "Grain Mill", "grain"),
+  upgradeCard("fuel-rig-a", "fuel-rig", "Fuel Rig", "fuel"),
+  upgradeCard("sawmill-a", "sawmill", "Sawmill", "lumber"),
+  upgradeCard("hiring-office-a", "hiring-office", "Hiring Office", "labor"),
+  upgradeCard("grain-mill-b", "grain-mill", "Grain Mill", "grain"),
+  upgradeCard("fuel-rig-b", "fuel-rig", "Fuel Rig", "fuel"),
+  upgradeCard("sawmill-b", "sawmill", "Sawmill", "lumber"),
+  upgradeCard("hiring-office-b", "hiring-office", "Hiring Office", "labor")
+];
+
+const playerOrder = ["player-1", "player-2"];
+const chair = "player-1";
 
 export const initialGameState: GameState = {
   config: {
-    playerOrder: PLAYER_ORDER,
-    resourceDefinitions: {
-      grain: {
-        id: "grain",
-        name: "Grain",
-        category: "food",
-        baseAnchorPriceNotes: 3,
-        baseAnchorPriceCoins: 1,
-        startingSupply: 12,
-        lifeCostWeight: 0.5,
-        canBeProduced: true
-      },
-      wood: {
-        id: "wood",
-        name: "Wood",
-        category: "materials",
-        baseAnchorPriceNotes: 4,
-        baseAnchorPriceCoins: 1,
-        startingSupply: 10,
-        lifeCostWeight: 0.2,
-        canBeProduced: true
-      },
-      iron: {
-        id: "iron",
-        name: "Iron",
-        category: "industry",
-        baseAnchorPriceNotes: 6,
-        baseAnchorPriceCoins: 2,
-        startingSupply: 8,
-        lifeCostWeight: 0.15,
-        canBeProduced: true
-      },
-      energy: {
-        id: "energy",
-        name: "Energy",
-        category: "utility",
-        baseAnchorPriceNotes: 5,
-        baseAnchorPriceCoins: 2,
-        startingSupply: 9,
-        lifeCostWeight: 0.15,
-        canBeProduced: true
-      }
+    resources: {
+      grain: { id: "grain", name: "Grain", shortLabel: "GR" },
+      fuel: { id: "fuel", name: "Fuel", shortLabel: "FU" },
+      lumber: { id: "lumber", name: "Lumber", shortLabel: "LU" },
+      labor: { id: "labor", name: "Labor", shortLabel: "LA" }
     },
-    upgradeDefinitions: {
-      mill: {
-        id: "mill",
-        name: "Mill",
-        costNotes: 10,
-        costCoins: 2,
-        description: "Adds +1 Grain whenever this player produces Grain.",
-        effects: [{ type: "productionBonus", resourceId: "grain", amount: 1 }]
+    roles: {
+      farmer: {
+        id: "farmer",
+        name: "Farmer",
+        specialty: "grain",
+        description: "+1 output on Grain production actions."
       },
-      forge: {
-        id: "forge",
-        name: "Forge",
-        costNotes: 12,
-        costCoins: 3,
-        description: "Adds +1 Iron whenever this player produces Iron.",
-        effects: [{ type: "productionBonus", resourceId: "iron", amount: 1 }]
+      refiner: {
+        id: "refiner",
+        name: "Refiner",
+        specialty: "fuel",
+        description: "+1 output on Fuel production actions."
       },
-      warehouse: {
-        id: "warehouse",
-        name: "Warehouse",
-        costNotes: 8,
-        costCoins: 2,
-        description: "Adds a small Wood production bump.",
-        effects: [{ type: "productionBonus", resourceId: "wood", amount: 1 }]
+      builder: {
+        id: "builder",
+        name: "Builder",
+        specialty: "lumber",
+        description: "+1 output on Lumber production actions."
       },
-      "mint-press": {
-        id: "mint-press",
-        name: "Mint Press",
-        costNotes: 14,
-        costCoins: 4,
-        description: "Represents better liquidity handling with higher deposit returns later.",
-        effects: [{ type: "depositBonus", amount: 1 }]
+      organizer: {
+        id: "organizer",
+        name: "Organizer",
+        specialty: "labor",
+        description: "+1 output on Labor production actions."
       }
     }
-  },
-  round: {
-    roundNumber: 1,
-    phase: "policy",
-    policyChairPlayerId: initialChair,
-    firstTurnPlayerId: getLeftOfChair(initialChair),
-    turnOrder: buildTurnOrder(initialChair),
-    activeTurnIndex: 0,
-    activePlayerId: null,
-    activeTurnWindow: null,
-    hasRoundEnded: false
-  },
-  policy: {
-    policyRate: DEFAULT_POLICY_RATE,
-    lifeCostIndex: 8.1,
-    priceLevel: 1,
-    chairHistory: [initialChair]
   },
   players: {
-    "player-1": {
-      id: "player-1",
-      name: "River Syndicate",
-      seat: 0,
-      notes: 28,
-      coins: 9,
-      inventory: inventory({ grain: 3, wood: 2, iron: 1, energy: 1 }),
-      loans: [
-        {
-          id: "loan-setup-1",
-          playerId: "player-1",
-          principal: 10,
-          interestRate: 8,
-          minimumPayment: 3,
-          remainingBalance: 7,
-          termRounds: 3,
-          status: "active"
-        }
-      ],
-      deposits: [
-        {
-          id: "deposit-setup-1",
-          playerId: "player-1",
-          amount: 6,
-          interestRate: 3,
-          maturityRound: 2,
-          status: "active"
-        }
-      ],
-      upgrades: [
-        { upgradeId: "mill", isUnlocked: true, isUsedThisRound: false },
-        { upgradeId: "warehouse", isUnlocked: false, isUsedThisRound: false }
-      ],
-      productionCapacity: capacity({ grain: 2, wood: 1, iron: 0, energy: 1 })
-    },
-    "player-2": {
-      id: "player-2",
-      name: "Foundry House",
-      seat: 1,
-      notes: 24,
-      coins: 11,
-      inventory: inventory({ grain: 1, wood: 3, iron: 3, energy: 2 }),
-      loans: [
-        {
-          id: "loan-setup-2",
-          playerId: "player-2",
-          principal: 12,
-          interestRate: 7,
-          minimumPayment: 3,
-          remainingBalance: 9,
-          termRounds: 4,
-          status: "active"
-        }
-      ],
-      deposits: [
-        {
-          id: "deposit-setup-2",
-          playerId: "player-2",
-          amount: 4,
-          interestRate: 4,
-          maturityRound: 3,
-          status: "active"
-        }
-      ],
-      upgrades: [
-        { upgradeId: "forge", isUnlocked: true, isUsedThisRound: false },
-        { upgradeId: "mint-press", isUnlocked: false, isUsedThisRound: false }
-      ],
-      productionCapacity: capacity({ grain: 1, wood: 1, iron: 2, energy: 1 })
-    }
-  },
-  resources: Object.fromEntries(
-    RESOURCE_IDS.map((resourceId) => {
-      const definition = {
-        grain: { notes: 3, coins: 1, supply: 12 },
-        wood: { notes: 4, coins: 1, supply: 10 },
-        iron: { notes: 6, coins: 2, supply: 8 },
-        energy: { notes: 5, coins: 2, supply: 9 }
-      }[resourceId];
-
-      return [
-        resourceId,
-        {
-          resourceId,
-          anchorPriceNotes: definition.notes,
-          anchorPriceCoins: definition.coins,
-          availableSupply: definition.supply,
-          lastRoundDemand: 0,
-          lastRoundProduced: 0
-        }
-      ];
+    "player-1": player("player-1", "River Farm Co.", "farmer", {
+      notes: 14,
+      bits: 4,
+      goods: goods({ grain: 2, fuel: 1, lumber: 1, labor: 0 }),
+      loans: [loanToken("loan-p1-1", 0)],
+      deposits: [depositToken("deposit-p1-1", 0, 11)],
+      ownedUpgrades: [upgradeCard("owned-grain-mill-1", "grain-mill", "Grain Mill", "grain")],
+      satisfiedUpkeepLastRound: true
+    }),
+    "player-2": player("player-2", "Forge & Crew", "builder", {
+      notes: 10,
+      bits: 7,
+      goods: goods({ grain: 1, fuel: 1, lumber: 2, labor: 1 }),
+      loans: [loanToken("loan-p2-1", 0)],
+      deposits: [],
+      ownedUpgrades: [upgradeCard("owned-sawmill-1", "sawmill", "Sawmill", "lumber")],
+      satisfiedUpkeepLastRound: false
     })
-  ) as GameState["resources"],
-  bankDemandDeck: [
-    {
-      id: "demand-card-1",
-      title: "Winter Reserves",
-      description: "The bank wants Grain and Energy to stabilize households.",
-      resourceDemand: { grain: 3, energy: 2 },
-      payoutMultiplier: 1.2,
-      policyBias: "ease"
-    },
-    {
-      id: "demand-card-2",
-      title: "Rail Expansion",
-      description: "The bank prioritizes Wood and Iron deliveries for public works.",
-      resourceDemand: { wood: 3, iron: 2 },
-      payoutMultiplier: 1.4,
-      policyBias: "tighten"
-    }
-  ],
-  activeDemandCardId: "demand-card-1",
-  priceBook: {
-    roundNumber: 1,
-    trades: [],
-    lastTradeByResource: {},
-    averageUnitPriceNotesByResource: {},
-    averageUnitPriceCoinsByResource: {}
   },
+  playerOrder,
+  round: {
+    roundNumber: 1,
+    phase: "policyVote",
+    policyChairPlayerId: chair,
+    turnOrder: buildTurnOrder(playerOrder, chair),
+    activePlayerIndex: 0,
+    activePlayerId: null,
+    activePlayerStage: null,
+    policyVotes: {},
+    votedRate: 10,
+    discoveredNotesPrices: {},
+    bankDemandCardId: null,
+    bankBuyOrderIndex: 0,
+    notesCreatedThisRound: 0,
+    settlement: Object.fromEntries(
+      playerOrder.map((playerId) => [
+        playerId,
+        {
+          lifeUnitsPaid: 0,
+          interestPaidLoanIds: []
+        }
+      ])
+    ) as GameState["round"]["settlement"]
+  },
+  anchorNotesPrices: {
+    grain: 3,
+    fuel: 4,
+    lumber: 5,
+    labor: 5
+  },
+  bankDemandDeck: demandDeck,
+  discardedBankDemandCards: [],
+  upgradeDeck: upgradeDeck.slice(3),
+  upgradeMarketRow: upgradeDeck.slice(0, 3),
+  tradeLog: [],
   turnLog: [
     {
-      id: "log-setup-1",
+      id: "log-1",
       roundNumber: 1,
-      phase: "policy",
+      phase: "policyVote",
       actor: "system",
-      actionType: "startRound",
-      message: "Prototype seed loaded with two firms, active credit, and dual-currency prices."
+      message: "Game ready: vote on 0%, 10%, or 20% before player turns begin."
     }
   ]
 };

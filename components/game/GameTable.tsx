@@ -1,14 +1,9 @@
 "use client";
 
 import { useReducer } from "react";
-import { initialGameState } from "@/lib/game/sample-data";
 import { gameReducer } from "@/lib/game/reducer";
-import {
-  selectAveragePricesByResource,
-  selectLifeCostIndex,
-  selectOutstandingDeposits,
-  selectOutstandingLoans
-} from "@/lib/game/selectors";
+import { initialGameState } from "@/lib/game/sample-data";
+import { selectLifeCostIndex } from "@/lib/game/selectors";
 import { GameLog } from "./GameLog";
 import { MarketBankBoard } from "./MarketBankBoard";
 import { PlayerBoard } from "./PlayerBoard";
@@ -16,45 +11,36 @@ import { PlayerBoard } from "./PlayerBoard";
 export function GameTable() {
   const [state, dispatch] = useReducer(gameReducer, initialGameState);
   const lifeCostIndex = selectLifeCostIndex(state);
-  const priceAverages = selectAveragePricesByResource(state);
-  const loans = selectOutstandingLoans(state);
-  const deposits = selectOutstandingDeposits(state);
 
   return (
     <main className="table-shell">
       <header className="table-header">
         <div>
-          <p className="eyebrow">Manual Digital Board-Game Prototype</p>
-          <h1 className="table-title">Debank Market Table</h1>
+          <p className="eyebrow">Manual Tabletop Playtest Prototype</p>
+          <h1 className="table-title">Debank</h1>
           <p className="table-subtitle">
-            The game now centers on a shared market and bank board, while each house plays from a dedicated tableau
-            with cards, tracks, and resource tokens instead of admin panels.
+            A market game about price discovery, debt Notes created through lending and bank buying, and Bits as fixed
+            hard money. The shared board carries policy, pricing, bank demand, and repricing pressure while each player
+            acts from a personal board.
           </p>
         </div>
         <div className="table-status-pill">
           <span>Round {state.round.roundNumber}</span>
           <span>{state.round.phase}</span>
-          <span>{state.round.activeTurnWindow?.step ?? "table setup"}</span>
+          <span>Life Cost {lifeCostIndex}</span>
         </div>
       </header>
 
       <section className="game-table">
-        <MarketBankBoard
-          state={state}
-          dispatch={dispatch}
-          lifeCostIndex={lifeCostIndex}
-          priceAverages={priceAverages}
-          loans={loans}
-          deposits={deposits}
-        />
+        <MarketBankBoard state={state} dispatch={dispatch} />
 
         <div className="player-board-row">
-          {Object.values(state.players).map((player) => (
-            <PlayerBoard key={player.id} state={state} player={player} dispatch={dispatch} />
+          {state.playerOrder.map((playerId) => (
+            <PlayerBoard key={playerId} state={state} player={state.players[playerId]} dispatch={dispatch} />
           ))}
         </div>
 
-        <GameLog entries={state.turnLog} trades={state.priceBook.trades} />
+        <GameLog state={state} />
       </section>
     </main>
   );

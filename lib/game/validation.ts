@@ -1,143 +1,171 @@
-import type { Action, ActionResult, GameState, PlayerId } from "./types";
+import { DEPOSIT_PRINCIPAL, LOAN_PRINCIPAL } from "./constants";
+import { selectCurrentBankBuyer, selectLifeCostIndex, selectLoanInterestDue, selectRoleSpecialty } from "./selectors";
+import type { Action, GameState } from "./types";
 
-function validateActivePlayer(state: GameState, playerId: PlayerId): ActionResult {
-  if (state.round.phase !== "playerTurns") {
-    return { ok: false, reason: "Player actions only happen during player turns." };
-  }
-
-  if (state.round.activePlayerId !== playerId) {
-    return { ok: false, reason: "Only the active player can act right now." };
-  }
-
-  return { ok: true };
-}
-
-export function canApplyAction(state: GameState, action: Action): ActionResult {
+export function validateAction(state: GameState, action: Action): string | null {
   switch (action.type) {
-    case "startRound":
-      return { ok: state.round.phase === "policy" };
-    case "rotateChair":
-      return { ok: state.round.phase === "roundEnd" || state.round.phase === "policy" };
-    case "setPolicyRate":
-    case "drawDemandCard":
-    case "startPlayerTurns":
-      return {
-        ok: state.round.phase === "policy",
-        reason: "Policy actions only happen during the policy phase."
-      };
-    case "produceResource":
-      if (action.quantity <= 0) {
-        return { ok: false, reason: "Production quantity must be positive." };
+    case "setPolicyVote":
+      return state.round.phase === "policyVote" ? null : "Votes only happen in Policy Vote.";
+    case "resolvePolicyVote":
+      return state.round.phase !== "policyVote"
+        ? "Policy can only be resolved in Policy Vote."
+        : Object.keys(state.round.policyVotes).length < state.playerOrder.length
+          ? "All players must vote before resolving policy."
+          : null;
+    case "produceGood": {
+      const player = state.players[action.playerId];
+      if (state.round.phase !== "playerTurns" || state.round.activePlayerId !== action.playerId || state.round.activePlayerStage !== "production") {
+        return "Production only happens on the active player's production step.";
       }
-      if (state.round.activeTurnWindow?.step !== "produce") {
-        return { ok: false, reason: "Production is only legal during the produce step." };
+
+      if (action.useFlex) {
+        if (!player.satisfiedUpkeepLastRound) {
+          return "Flex production only exists if last upkeep was fully satisfied.";
+        }
+
+        if (player.turnActivity.flexProductionUsed) {
+          return "Flex production has already been used.";
+        }
+
+        return null;
       }
-      if (action.quantity > state.players[action.playerId].productionCapacity[action.resourceId]) {
-        return { ok: false, reason: "Production cannot exceed the player's current capacity." };
+
+      if (player.turnActivity.normalProductionActionsUsed >= 2) {
+        return "Only two normal production actions are allowed.";
       }
-      return validateActivePlayer(state, action.playerId);
+
+      return null;
+    }
+    case "recordTrade": {
+      if (state.round.phase !== "playerTurns" || state.round.activePlayerStage !== "market") {
+        return "Trades only happen in the active player's Market / Finance / Build step.";
+      }
+
+      if (state.round.activePlayerId !== action.initiatorPlayerId) {
+        return "Only the active player may initiate trades.";
+      }
+
+      if (state.players[action.otherPlayerId].goods[action.resourceId] < action.quantity) {
+        return "Counterparty does not have enough goods.";
+      }
+
+      if (state.players[action.initiatorPlayerId].notes < action.totalNotes || state.players[action.initiatorPlayerId].bits < action.totalBits) {
+        return "Initiator does not have enough Notes or Bits.";
+      }
+
+      return null;
+    }
     case "takeLoan":
-      if (action.amount <= 0) {
-        return { ok: false, reason: "Loan amount must be positive." };
-      }
-      if (state.round.activeTurnWindow?.step !== "finance") {
-        return { ok: false, reason: "Finance actions are only legal during the finance step." };
-      }
-      return validateActivePlayer(state, action.playerId);
-    case "repayLoan":
-      if (action.amount <= 0) {
-        return { ok: false, reason: "Repayment amount must be positive." };
-      }
-      if (state.players[action.playerId].notes < action.amount) {
-        return { ok: false, reason: "Player does not have enough Notes to repay that amount." };
-      }
-      if (!state.players[action.playerId].loans.some((loan) => loan.id === action.loanId && loan.status === "active")) {
-        return { ok: false, reason: "That loan is not active." };
-      }
-      if (state.round.activeTurnWindow?.step !== "finance") {
-        return { ok: false, reason: "Finance actions are only legal during the finance step." };
-      }
-      return validateActivePlayer(state, action.playerId);
+      return state.round.phase !== "playerTurns" ||
+        state.round.activePlayerId !== action.playerId ||
+        state.round.activePlayerStage !== "market"
+        ? "Loans only happen on the active player's market step."
+        : state.players[action.playerId].turnActivity.loanTakenThisTurn
+          ? "Only one bank loan may be taken per turn."
+          : null;
     case "createDeposit":
-      if (action.amount <= 0) {
-        return { ok: false, reason: "Deposit amount must be positive." };
-      }
-      if (state.players[action.playerId].notes < action.amount) {
-        return { ok: false, reason: "Player does not have enough Notes to make that deposit." };
-      }
-      if (state.round.activeTurnWindow?.step !== "finance") {
-        return { ok: false, reason: "Finance actions are only legal during the finance step." };
-      }
-      return validateActivePlayer(state, action.playerId);
-    case "withdrawDeposit":
-      if (
-        !state.players[action.playerId].deposits.some(
-          (deposit) => deposit.id === action.depositId && deposit.status === "active"
-        )
-      ) {
-        return { ok: false, reason: "That deposit is not active." };
-      }
-      if (state.round.activeTurnWindow?.step !== "finance") {
-        return { ok: false, reason: "Finance actions are only legal during the finance step." };
-      }
-      return validateActivePlayer(state, action.playerId);
-    case "buyUpgrade":
-      if (state.players[action.playerId].upgrades.some((upgrade) => upgrade.upgradeId === action.upgradeId && upgrade.isUnlocked)) {
-        return { ok: false, reason: "That upgrade is already owned." };
-      }
-      if (state.players[action.playerId].notes < state.config.upgradeDefinitions[action.upgradeId].costNotes) {
-        return { ok: false, reason: "Player does not have enough Notes for that upgrade." };
-      }
-      if (state.players[action.playerId].coins < state.config.upgradeDefinitions[action.upgradeId].costCoins) {
-        return { ok: false, reason: "Player does not have enough Coins for that upgrade." };
-      }
-      if (state.round.activeTurnWindow?.step !== "upgrades") {
-        return { ok: false, reason: "Upgrades are only legal during the upgrades step." };
-      }
-      return validateActivePlayer(state, action.playerId);
-    case "recordTrade":
-      if (action.quantity <= 0) {
-        return { ok: false, reason: "Trade quantity must be positive." };
-      }
-      if (action.unitPriceNotes < 0 || action.unitPriceCoins < 0) {
-        return { ok: false, reason: "Trade prices cannot be negative." };
-      }
-      if (state.round.activeTurnWindow?.step !== "trade") {
-        return { ok: false, reason: "Trades are only legal during the trade step." };
-      }
-      if (state.round.activePlayerId !== action.buyerPlayerId && state.round.activePlayerId !== action.sellerPlayerId) {
-        return { ok: false, reason: "The active player must participate in the trade." };
-      }
-      if (action.buyerPlayerId === action.sellerPlayerId) {
-        return { ok: false, reason: "A player cannot trade with themselves." };
-      }
-      if (state.players[action.sellerPlayerId].inventory[action.resourceId] < action.quantity) {
-        return { ok: false, reason: "Seller does not have enough inventory." };
-      }
-      if (state.players[action.buyerPlayerId].notes < action.quantity * action.unitPriceNotes) {
-        return { ok: false, reason: "Buyer does not have enough Notes." };
-      }
-      if (state.players[action.buyerPlayerId].coins < action.quantity * action.unitPriceCoins) {
-        return { ok: false, reason: "Buyer does not have enough Coins." };
-      }
-      return { ok: true };
-    case "advanceTurnStep":
+      return state.round.phase !== "playerTurns" ||
+        state.round.activePlayerId !== action.playerId ||
+        state.round.activePlayerStage !== "market"
+        ? "Deposits only happen on the active player's market step."
+        : state.players[action.playerId].turnActivity.depositMadeThisTurn
+          ? "Only one bank deposit may be created per turn."
+          : state.players[action.playerId].notes < DEPOSIT_PRINCIPAL
+            ? "Player does not have 10 Notes to deposit."
+            : null;
+    case "repayLoan":
+      return state.round.phase !== "playerTurns" ||
+        state.round.activePlayerId !== action.playerId ||
+        state.round.activePlayerStage !== "market"
+        ? "Loan repayment only happens on the active player's market step."
+        : state.players[action.playerId].notes < LOAN_PRINCIPAL
+          ? "Player does not have 10 Notes to repay a loan."
+          : null;
+    case "buyUpgrade": {
+      const card = state.upgradeMarketRow.find((entry) => entry.id === action.upgradeCardId);
+      return state.round.phase !== "playerTurns" ||
+        state.round.activePlayerId !== action.playerId ||
+        state.round.activePlayerStage !== "market"
+        ? "Upgrades only happen on the active player's market step."
+        : state.players[action.playerId].turnActivity.upgradeBoughtThisTurn
+          ? "At most one production upgrade may be bought per turn."
+          : !card
+            ? "That upgrade is not in the visible market row."
+            : state.players[action.playerId].ownedUpgrades.some((owned) => owned.type === card.type)
+              ? "Player already owns that production upgrade type."
+              : state.players[action.playerId].notes < card.costNotes
+                ? "Player does not have enough Notes."
+                : null;
+    }
+    case "advancePlayerStage":
+      return state.round.phase === "playerTurns" && state.round.activePlayerStage === "production"
+        ? null
+        : "Can only advance from Production to Market during player turns.";
     case "endPlayerTurn":
-      return {
-        ok: state.round.phase === "playerTurns",
-        reason: "Turn controls only work during player turns."
-      };
-    case "advancePhase":
-      return {
-        ok: state.round.phase === "settlement" || state.round.phase === "upkeep",
-        reason: "Only settlement and upkeep can be advanced manually."
-      };
+      return state.round.phase === "playerTurns" && state.round.activePlayerStage === "market"
+        ? null
+        : "Player turn can only end from the Market / Finance / Build step.";
+    case "revealBankDemandCard":
+      return state.round.phase === "centralBank" && !state.round.bankDemandCardId
+        ? null
+        : "Reveal exactly one demand card at the start of the Central Bank Turn.";
+    case "bankBuy":
+      return state.round.phase !== "centralBank"
+        ? "Bank purchases only happen during the Central Bank Turn."
+        : state.round.bankDemandCardId === null
+          ? "Reveal the bank demand card first."
+          : selectCurrentBankBuyer(state) !== action.playerId
+            ? "Bank must buy in order starting left of the Policy Chair."
+            : state.players[action.playerId].goods[action.resourceId] < action.quantity
+              ? "That player does not have enough of the good."
+              : null;
+    case "advanceBankBuyer":
+      return state.round.phase === "centralBank" ? null : "Bank order only advances during the Central Bank Turn.";
+    case "payLife": {
+      const player = state.players[action.playerId];
+      const lifeCostIndex = selectLifeCostIndex(state);
+
+      if (state.round.phase !== "settlement") {
+        return "Life upkeep is only paid in Settlement.";
+      }
+
+      if (state.round.settlement[action.playerId].lifeUnitsPaid >= 2) {
+        return "This player has already paid both Life Units.";
+      }
+
+      if (action.payment === "notes" && player.notes < lifeCostIndex) {
+        return "Player does not have enough Notes for one Life Unit.";
+      }
+
+      if ((action.payment === "grain" || action.payment === "fuel") && player.goods[action.payment] < 1) {
+        return "Player does not have that good available.";
+      }
+
+      return null;
+    }
+    case "payLoanInterest": {
+      const due = selectLoanInterestDue(state.round.votedRate);
+      return state.round.phase !== "settlement"
+        ? "Loan interest is paid in Settlement."
+        : due === 0
+          ? "No interest is due at 0%."
+          : state.round.settlement[action.playerId].interestPaidLoanIds.includes(action.loanId)
+            ? "That loan's interest has already been settled."
+            : state.players[action.playerId].notes < due
+              ? "Not enough Notes to pay interest directly."
+              : null;
+    }
+    case "resolveInterestShortfall":
+      return state.round.phase !== "settlement"
+        ? "Interest shortfalls are resolved in Settlement."
+        : state.round.settlement[action.playerId].interestPaidLoanIds.includes(action.loanId)
+          ? "That loan's interest has already been resolved."
+          : null;
+    case "setAnchorPrice":
+      return state.round.phase === "repricing" ? null : "Anchor repricing only happens in Repricing / End Round.";
     case "endRound":
-      return {
-        ok: state.round.phase === "roundEnd",
-        reason: "The round must be in roundEnd before it can reset."
-      };
+      return state.round.phase === "repricing" ? null : "The round can only end after repricing.";
     default:
-      return { ok: true };
+      return null;
   }
 }
