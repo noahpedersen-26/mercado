@@ -6,11 +6,15 @@ import { initialGameState } from "@/lib/game/sample-data";
 import { selectLifeCostIndex } from "@/lib/game/selectors";
 import { GameLog } from "./GameLog";
 import { MarketBankBoard } from "./MarketBankBoard";
+import { OpponentSummary } from "./OpponentSummary";
 import { PlayerBoard } from "./PlayerBoard";
+import { TurnGuidePanel } from "./TurnGuidePanel";
 
 export function GameTable() {
   const [state, dispatch] = useReducer(gameReducer, initialGameState);
   const lifeCostIndex = selectLifeCostIndex(state);
+  const localPlayerId = state.playerOrder[0];
+  const opponents = state.playerOrder.filter((playerId) => playerId !== localPlayerId);
 
   return (
     <main className="table-shell">
@@ -32,15 +36,38 @@ export function GameTable() {
       </header>
 
       <section className="game-table">
-        <MarketBankBoard state={state} dispatch={dispatch} />
+        <div className="focus-layout">
+          <div className="focus-main-column">
+            <PlayerBoard state={state} player={state.players[localPlayerId]} dispatch={dispatch} isLocalPlayer />
+            <GameLog state={state} />
+          </div>
 
-        <div className="player-board-row">
-          {state.playerOrder.map((playerId) => (
-            <PlayerBoard key={playerId} state={state} player={state.players[playerId]} dispatch={dispatch} />
-          ))}
+          <div className="focus-side-column">
+            <TurnGuidePanel state={state} localPlayerId={localPlayerId} />
+            <MarketBankBoard state={state} dispatch={dispatch} compact />
+
+            <section className="board opponents-board">
+              <div className="board-header">
+                <div>
+                  <p className="eyebrow">Table View</p>
+                  <h2>Other Players</h2>
+                  <p className="board-subtitle">Compact role and upgrade summaries keep the focus on your own board.</p>
+                </div>
+              </div>
+
+              <div className="opponents-list">
+                {opponents.map((playerId) => (
+                  <OpponentSummary
+                    key={playerId}
+                    state={state}
+                    player={state.players[playerId]}
+                    isActive={state.round.activePlayerId === playerId}
+                  />
+                ))}
+              </div>
+            </section>
+          </div>
         </div>
-
-        <GameLog state={state} />
       </section>
     </main>
   );

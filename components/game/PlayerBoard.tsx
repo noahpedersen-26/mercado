@@ -13,11 +13,13 @@ import { ResourceTokenGroup } from "./ResourceTokenGroup";
 export function PlayerBoard({
   state,
   player,
-  dispatch
+  dispatch,
+  isLocalPlayer = false
 }: {
   state: GameState;
   player: PlayerState;
   dispatch: React.Dispatch<Action>;
+  isLocalPlayer?: boolean;
 }) {
   const [resourceId, setResourceId] = useState<ResourceId>("grain");
   const [useFlex, setUseFlex] = useState(false);
@@ -38,10 +40,10 @@ export function PlayerBoard({
   const isActive = state.round.activePlayerId === player.id;
 
   return (
-    <section className={`board player-board ${isActive ? "is-active-player" : ""}`}>
+    <section className={`board player-board ${isActive ? "is-active-player" : ""} ${isLocalPlayer ? "player-board-local" : ""}`}>
       <div className="board-header">
         <div>
-          <p className="eyebrow">Player Board</p>
+          <p className="eyebrow">{isLocalPlayer ? "Your Board" : "Player Board"}</p>
           <h2>{player.name}</h2>
           <p className="board-subtitle">
             Role: <strong>{state.config.roles[player.role].name}</strong> · Specialty {state.config.resources[specialty].name}
@@ -107,7 +109,11 @@ export function PlayerBoard({
           </div>
         </ActionPanel>
 
-        <ActionPanel title="Production Step" subtitle="Two normal production actions, plus one flex action if last upkeep was fully satisfied." tone="player">
+        <ActionPanel
+          title="Production Step"
+          subtitle="First do your production actions in sequence, then move to market."
+          tone="player"
+        >
           <div className="player-action-grid">
             <label className="control-stack">
               <span>Produce Good</span>
@@ -142,7 +148,11 @@ export function PlayerBoard({
           </div>
         </ActionPanel>
 
-        <ActionPanel title="Market / Finance / Build" subtitle="Active player may trade, take 1 loan, create 1 deposit, repay loans, and buy 1 upgrade." tone="player">
+        <ActionPanel
+          title="Market / Finance / Build"
+          subtitle="After production, choose trade, finance, upgrade, and then end turn."
+          tone="player"
+        >
           <div className="player-action-grid">
             <label className="control-stack">
               <span>Trade Target</span>

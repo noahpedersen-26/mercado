@@ -16,10 +16,12 @@ import { UpgradeRow } from "./UpgradeRow";
 
 export function MarketBankBoard({
   state,
-  dispatch
+  dispatch,
+  compact = false
 }: {
   state: GameState;
   dispatch: React.Dispatch<Action>;
+  compact?: boolean;
 }) {
   const [repricingResource, setRepricingResource] = useState<ResourceId>("grain");
   const [repricingValue, setRepricingValue] = useState(String(state.anchorNotesPrices.grain));
@@ -33,12 +35,16 @@ export function MarketBankBoard({
     null;
 
   return (
-    <section className="board shared-board">
+    <section className={`board shared-board ${compact ? "shared-board-compact" : ""}`}>
       <div className="board-header">
         <div>
           <p className="eyebrow">Shared Board</p>
           <h2>Market / Bank Board</h2>
-          <p className="board-subtitle">Policy vote, Notes prices, bank demand, upgrade row, and repricing pressure.</p>
+          <p className="board-subtitle">
+            {compact
+              ? "Condensed shared state for policy, bank demand, pricing, and repricing."
+              : "Policy vote, Notes prices, bank demand, upgrade row, and repricing pressure."}
+          </p>
         </div>
         <div className="board-header-stats">
           <CurrencyToken label="Life Cost Index" value={lifeCostIndex} tone="ivory" />
@@ -47,7 +53,7 @@ export function MarketBankBoard({
         </div>
       </div>
 
-      <div className="shared-board-grid">
+      <div className={`shared-board-grid ${compact ? "shared-board-grid-compact" : ""}`}>
         <div className="board-zone board-zone-main">
           <TurnTrack state={state} />
           <PolicyTrack state={state} />

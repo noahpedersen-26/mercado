@@ -125,6 +125,21 @@ select {
   gap: 18px;
 }
 
+.focus-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.focus-main-column,
+.focus-side-column,
+.opponents-list,
+.guide-actions-list {
+  display: grid;
+  gap: 18px;
+}
+
 .board {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 12%),
@@ -139,6 +154,10 @@ select {
 
 .shared-board {
   position: relative;
+}
+
+.shared-board-compact {
+  padding: 16px;
 }
 
 .board-header {
@@ -170,6 +189,10 @@ select {
   display: grid;
   grid-template-columns: 1.6fr 0.9fr;
   gap: 16px;
+}
+
+.shared-board-grid-compact {
+  grid-template-columns: 1fr;
 }
 
 .board-zone {
@@ -267,6 +290,10 @@ select {
   gap: 14px;
 }
 
+.player-board-local {
+  min-height: 100%;
+}
+
 .log-layout {
   grid-template-columns: 1.25fr 1fr;
 }
@@ -279,11 +306,42 @@ select {
 .finance-token,
 .currency-token,
 .faction-card,
-.mini-card {
+.mini-card,
+.opponent-card,
+.guide-action {
   border-radius: 16px;
   border: 1px solid rgba(111, 84, 50, 0.55);
   background: rgba(255, 251, 242, 0.75);
   padding: 10px 12px;
+}
+
+.opponent-card-header,
+.opponent-meta-row,
+.opponent-stats-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.opponent-card-active {
+  box-shadow: 0 0 0 2px rgba(255, 236, 170, 0.6);
+}
+
+.opponent-meta-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.guide-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guide-action-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--gold);
+  flex: 0 0 auto;
 }
 
 .track-space {
@@ -569,6 +627,7 @@ select {
 }
 
 @media (max-width: 1100px) {
+  .focus-layout,
   .shared-board-grid,
   .player-board-row,
   .player-board-grid,
@@ -594,7 +653,8 @@ select {
   .track-row,
   .action-grid,
   .player-action-grid,
-  .board-zone-bank {
+  .board-zone-bank,
+  .opponent-meta-row {
     grid-template-columns: 1fr;
   }
 }
