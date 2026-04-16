@@ -127,8 +127,8 @@ select {
 
 .focus-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.82fr);
+  gap: 14px;
   align-items: start;
 }
 
@@ -193,6 +193,33 @@ select {
 
 .shared-board-grid-compact {
   grid-template-columns: 1fr;
+}
+
+.shared-status-strip,
+.scene-split,
+.scene-stack,
+.scene-grid-wide,
+.compact-log-list {
+  display: grid;
+  gap: 10px;
+}
+
+.shared-status-strip {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  margin-bottom: 12px;
+}
+
+.scene-split {
+  grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.95fr);
+}
+
+.scene-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.scene-grid-wide {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
 .board-zone {
@@ -334,6 +361,21 @@ select {
 
 .log-layout {
   grid-template-columns: 1.25fr 1fr;
+}
+
+.compact-log-board {
+  padding: 14px;
+}
+
+.compact-log-list {
+  gap: 8px;
+}
+
+.compact-log-entry {
+  border-radius: 14px;
+  border: 1px solid rgba(111, 84, 50, 0.5);
+  background: rgba(255, 251, 242, 0.78);
+  padding: 10px 12px;
 }
 
 .track-space,
@@ -673,6 +715,7 @@ select {
   .focus-layout,
   .shared-board-grid,
   .player-focus-layout,
+  .scene-split,
   .player-board-row,
   .player-board-grid,
   .log-layout {
