@@ -203,10 +203,10 @@ export const initialGameState: GameState = {
     ) as GameState["round"]["settlement"]
   },
   anchorNotesPrices: {
-    grain: 3,
-    fuel: 4,
-    lumber: 5,
-    labor: 5
+    grain: 2,
+    fuel: 2,
+    lumber: 2,
+    labor: 2
   },
   bankDemandDeck: demandDeck,
   discardedBankDemandCards: [],

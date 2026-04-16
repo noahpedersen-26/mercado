@@ -45,12 +45,32 @@ export function validateAction(state: GameState, action: Action): string | null 
         return "Only the active player may initiate trades.";
       }
 
+      if (action.quantity <= 0) {
+        return "A trade must include at least one good coming from the counterparty.";
+      }
+
+      if (action.barterQuantity < 0 || action.totalNotes < 0 || action.totalBits < 0) {
+        return "Trade values cannot be negative.";
+      }
+
       if (state.players[action.otherPlayerId].goods[action.resourceId] < action.quantity) {
-        return "Counterparty does not have enough goods.";
+        return "Counterparty does not have enough of the incoming good.";
+      }
+
+      if (
+        action.barterResourceId &&
+        action.barterQuantity > 0 &&
+        state.players[action.initiatorPlayerId].goods[action.barterResourceId] < action.barterQuantity
+      ) {
+        return "Initiator does not have enough of the offered good.";
       }
 
       if (state.players[action.initiatorPlayerId].notes < action.totalNotes || state.players[action.initiatorPlayerId].bits < action.totalBits) {
         return "Initiator does not have enough Notes or Bits.";
+      }
+
+      if (action.totalNotes === 0 && action.totalBits === 0 && (!action.barterResourceId || action.barterQuantity <= 0)) {
+        return "Trade must include Notes, Bits, or a good offered back.";
       }
 
       return null;

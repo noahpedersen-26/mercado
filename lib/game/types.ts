@@ -56,6 +56,8 @@ export interface TradeRecord {
   otherPlayerId: PlayerId;
   resourceId: ResourceId;
   quantity: number;
+  barterResourceId: ResourceId | null;
+  barterQuantity: number;
   totalNotes: number;
   totalBits: number;
   discoveredNotesPrice: number | null;
@@ -145,6 +147,8 @@ export type Action =
       otherPlayerId: PlayerId;
       resourceId: ResourceId;
       quantity: number;
+      barterResourceId: ResourceId | null;
+      barterQuantity: number;
       totalNotes: number;
       totalBits: number;
     }

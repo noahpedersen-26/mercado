@@ -1,5 +1,5 @@
 import { DEPOSIT_PRINCIPAL, LOAN_PRINCIPAL, RESOURCE_IDS } from "./constants";
-import { discoveredOrAnchorPrice, maybeDiscoverNotesPrice } from "./pricing";
+import { maybeDiscoverNotesPrice } from "./pricing";
 import {
   selectCurrentBankBuyer,
   selectDiscoveredOrAnchorPrice,
@@ -176,6 +176,37 @@ function nextPlayerState(state: GameState): GameState {
   );
 }
 
+function isSettlementComplete(state: GameState): boolean {
+  const interestDue = selectLoanInterestDue(state.round.votedRate);
+
+  return state.playerOrder.every((playerId) => {
+    const settlement = state.round.settlement[playerId];
+    const player = state.players[playerId];
+    const lifeDone = settlement.lifeUnitsPaid >= 2;
+    const interestDone = interestDue === 0 || settlement.interestPaidLoanIds.length >= player.loans.length;
+
+    return lifeDone && interestDone;
+  });
+}
+
+function maybeAdvanceToRepricing(state: GameState): GameState {
+  if (!isSettlementComplete(state)) {
+    return state;
+  }
+
+  return appendLog(
+    {
+      ...state,
+      round: {
+        ...state.round,
+        phase: "repricing"
+      }
+    },
+    "system",
+    "Settlement complete. Move to Repricing / End Round."
+  );
+}
+
 export function applyAction(state: GameState, action: Action): GameState {
   switch (action.type) {
     case "setPolicyVote":
@@ -271,14 +302,30 @@ export function applyAction(state: GameState, action: Action): GameState {
         otherPlayerId: action.otherPlayerId,
         resourceId: action.resourceId,
         quantity: action.quantity,
+        barterResourceId: action.barterResourceId,
+        barterQuantity: action.barterQuantity,
         totalNotes: action.totalNotes,
         totalBits: action.totalBits,
-        discoveredNotesPrice: action.totalBits === 0 && action.totalNotes > 0 ? Math.ceil(action.totalNotes / action.quantity) : null
+        discoveredNotesPrice: null
       };
 
       const buyer = state.players[action.initiatorPlayerId];
       const seller = state.players[action.otherPlayerId];
       const discoveredNotesPrices = maybeDiscoverNotesPrice(state, trade);
+      const discoveredNotesPrice = discoveredNotesPrices[action.resourceId] ?? null;
+      const buyerGoods = {
+        ...buyer.goods,
+        [action.resourceId]: buyer.goods[action.resourceId] + action.quantity
+      };
+      const sellerGoods = {
+        ...seller.goods,
+        [action.resourceId]: seller.goods[action.resourceId] - action.quantity
+      };
+
+      if (action.barterResourceId && action.barterQuantity > 0) {
+        buyerGoods[action.barterResourceId] = buyer.goods[action.barterResourceId] - action.barterQuantity;
+        sellerGoods[action.barterResourceId] = seller.goods[action.barterResourceId] + action.barterQuantity;
+      }
 
       return appendLog(
         {
@@ -289,29 +336,27 @@ export function applyAction(state: GameState, action: Action): GameState {
               ...buyer,
               notes: buyer.notes - action.totalNotes,
               bits: buyer.bits - action.totalBits,
-              goods: {
-                ...buyer.goods,
-                [action.resourceId]: buyer.goods[action.resourceId] + action.quantity
-              }
+              goods: buyerGoods
             },
             [action.otherPlayerId]: {
               ...seller,
               notes: seller.notes + action.totalNotes,
               bits: seller.bits + action.totalBits,
-              goods: {
-                ...seller.goods,
-                [action.resourceId]: seller.goods[action.resourceId] - action.quantity
-              }
+              goods: sellerGoods
             }
           },
-          tradeLog: [...state.tradeLog, trade],
+          tradeLog: [...state.tradeLog, { ...trade, discoveredNotesPrice }],
           round: {
             ...state.round,
             discoveredNotesPrices
           }
         },
         action.initiatorPlayerId,
-        `${buyer.name} traded for ${action.quantity} ${state.config.resources[action.resourceId].name} using ${action.totalNotes} Notes and ${action.totalBits} Bits.`
+        `${buyer.name} received ${action.quantity} ${state.config.resources[action.resourceId].name}${
+          action.barterResourceId && action.barterQuantity > 0
+            ? ` by sending ${action.barterQuantity} ${state.config.resources[action.barterResourceId].name}`
+            : ""
+        }${action.totalNotes > 0 ? ` and ${action.totalNotes} Notes` : ""}${action.totalBits > 0 ? ` and ${action.totalBits} Bits` : ""}.`
       );
     }
     case "takeLoan": {
@@ -515,7 +560,8 @@ export function applyAction(state: GameState, action: Action): GameState {
               }
             };
 
-      return appendLog(
+      return maybeAdvanceToRepricing(
+        appendLog(
         {
           ...state,
           players: {
@@ -539,14 +585,15 @@ export function applyAction(state: GameState, action: Action): GameState {
         },
         action.playerId,
         `${player.name} paid 1 Life Unit with ${action.payment === "notes" ? `${lifeCostIndex} Notes` : state.config.resources[action.payment].name}.`
-      );
+      ));
     }
     case "payLoanInterest": {
       const player = state.players[action.playerId];
       const due = selectLoanInterestDue(state.round.votedRate);
       const settlement = state.round.settlement[action.playerId];
 
-      return appendLog(
+      return maybeAdvanceToRepricing(
+        appendLog(
         {
           ...state,
           players: {
@@ -569,7 +616,7 @@ export function applyAction(state: GameState, action: Action): GameState {
         },
         action.playerId,
         `${player.name} paid ${due} Note interest on ${action.loanId}.`
-      );
+      ));
     }
     case "resolveInterestShortfall": {
       const player = state.players[action.playerId];
@@ -577,7 +624,8 @@ export function applyAction(state: GameState, action: Action): GameState {
       const remaining = Math.max(0, due - action.auctionProceeds);
       const resourceId = RESOURCE_IDS.find((resource) => resource === action.surrenderedLabel) as ResourceId | undefined;
 
-      return appendLog(
+      return maybeAdvanceToRepricing(
+        appendLog(
         {
           ...state,
           players: {
@@ -606,7 +654,7 @@ export function applyAction(state: GameState, action: Action): GameState {
         },
         "bank",
         `${player.name} surrendered ${action.surrenderedLabel}; auction raised ${action.auctionProceeds} Notes and ${remaining} became Arrears.`
-      );
+      ));
     }
     case "setAnchorPrice":
       return appendLog(

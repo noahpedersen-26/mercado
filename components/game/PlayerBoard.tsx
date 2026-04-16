@@ -48,6 +48,8 @@ export function PlayerBoard({
     state.playerOrder.find((playerId) => playerId !== player.id) ?? state.playerOrder[0]
   );
   const [tradeQuantity, setTradeQuantity] = useState("1");
+  const [barterResourceId, setBarterResourceId] = useState<ResourceId | "none">("none");
+  const [barterQuantity, setBarterQuantity] = useState("0");
   const [tradeNotes, setTradeNotes] = useState("0");
   const [tradeBits, setTradeBits] = useState("0");
   const [bankSellResource, setBankSellResource] = useState<ResourceId>("lumber");
@@ -225,7 +227,7 @@ export function PlayerBoard({
                 <section className="mini-zone">
                   <div className="zone-heading">
                     <h3>Trade</h3>
-                    <p>Active player initiates a trade and records the result.</p>
+                    <p>Active player initiates a trade and can barter goods, Notes, or Bits.</p>
                   </div>
                   <div className="scene-form-grid">
                     <label className="control-stack">
@@ -241,7 +243,7 @@ export function PlayerBoard({
                       </select>
                     </label>
                     <label className="control-stack">
-                      <span>Good</span>
+                      <span>You Receive</span>
                       <select value={resourceId} onChange={(event) => setResourceId(event.target.value as ResourceId)}>
                         {RESOURCE_IDS.map((id) => (
                           <option key={id} value={id}>
@@ -251,15 +253,30 @@ export function PlayerBoard({
                       </select>
                     </label>
                     <label className="control-stack">
-                      <span>Qty</span>
+                      <span>Receive Qty</span>
                       <input value={tradeQuantity} onChange={(event) => setTradeQuantity(event.target.value)} type="number" min="1" />
                     </label>
                     <label className="control-stack">
-                      <span>Notes</span>
+                      <span>You Give</span>
+                      <select value={barterResourceId} onChange={(event) => setBarterResourceId(event.target.value as ResourceId | "none")}>
+                        <option value="none">No Good</option>
+                        {RESOURCE_IDS.map((id) => (
+                          <option key={id} value={id}>
+                            {state.config.resources[id].name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="control-stack">
+                      <span>Give Qty</span>
+                      <input value={barterQuantity} onChange={(event) => setBarterQuantity(event.target.value)} type="number" min="0" />
+                    </label>
+                    <label className="control-stack">
+                      <span>You Pay Notes</span>
                       <input value={tradeNotes} onChange={(event) => setTradeNotes(event.target.value)} type="number" min="0" />
                     </label>
                     <label className="control-stack">
-                      <span>Bits</span>
+                      <span>You Pay Bits</span>
                       <input value={tradeBits} onChange={(event) => setTradeBits(event.target.value)} type="number" min="0" />
                     </label>
                   </div>
@@ -271,6 +288,8 @@ export function PlayerBoard({
                         otherPlayerId: tradeTargetId,
                         resourceId,
                         quantity: Number(tradeQuantity),
+                        barterResourceId: barterResourceId === "none" ? null : barterResourceId,
+                        barterQuantity: Number(barterQuantity),
                         totalNotes: Number(tradeNotes),
                         totalBits: Number(tradeBits)
                       })
