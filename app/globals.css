@@ -137,7 +137,7 @@ select {
 .opponents-list,
 .guide-actions-list {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .board {
@@ -146,7 +146,7 @@ select {
     linear-gradient(180deg, var(--board) 0%, #e6d1a9 100%);
   border: 3px solid var(--board-edge);
   border-radius: 24px;
-  padding: 18px;
+  padding: 16px;
   box-shadow:
     0 16px 30px rgba(7, 19, 16, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.45);
@@ -294,6 +294,44 @@ select {
   min-height: 100%;
 }
 
+.player-focus-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.95fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.player-overview-grid,
+.scene-stat-row,
+.scene-form-grid,
+.scene-tabs-grid,
+.scene-button-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.scene-stat-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.scene-form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.scene-tabs-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.scene-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scene-button-stack {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
 .log-layout {
   grid-template-columns: 1.25fr 1fr;
 }
@@ -342,6 +380,11 @@ select {
   border-radius: 999px;
   background: var(--gold);
   flex: 0 0 auto;
+}
+
+.opponents-board h2,
+.guide-board h2 {
+  font-size: 1.25rem;
 }
 
 .track-space {
@@ -629,13 +672,16 @@ select {
 @media (max-width: 1100px) {
   .focus-layout,
   .shared-board-grid,
+  .player-focus-layout,
   .player-board-row,
   .player-board-grid,
   .log-layout {
     grid-template-columns: 1fr;
   }
 
-  .player-action-grid {
+  .player-action-grid,
+  .scene-stat-row,
+  .scene-tabs-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -653,6 +699,8 @@ select {
   .track-row,
   .action-grid,
   .player-action-grid,
+  .scene-stat-row,
+  .scene-tabs-grid,
   .board-zone-bank,
   .opponent-meta-row {
     grid-template-columns: 1fr;

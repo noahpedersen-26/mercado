@@ -2,13 +2,39 @@
 
 import { useState } from "react";
 import { RESOURCE_IDS } from "@/lib/game/constants";
-import { selectLifeCostIndex, selectLoanInterestDue, selectRoleSpecialty, selectUpkeepPreview } from "@/lib/game/selectors";
+import {
+  selectCurrentBankBuyer,
+  selectLifeCostIndex,
+  selectLoanInterestDue,
+  selectRoleSpecialty,
+  selectUpkeepPreview
+} from "@/lib/game/selectors";
 import type { Action, GameState, PlayerState, ResourceId } from "@/lib/game/types";
 import { ActionPanel } from "./ActionPanel";
 import { CurrencyToken } from "./CurrencyToken";
 import { DepositToken } from "./DepositToken";
 import { LoanToken } from "./LoanToken";
 import { ResourceTokenGroup } from "./ResourceTokenGroup";
+
+function SceneShell({
+  title,
+  subtitle,
+  children
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="action-panel action-panel-player player-scene">
+      <div className="zone-heading">
+        <h3>{title}</h3>
+        <p>{subtitle}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
 
 export function PlayerBoard({
   state,
@@ -38,6 +64,390 @@ export function PlayerBoard({
   const specialty = selectRoleSpecialty(state, player.id);
   const interestDue = selectLoanInterestDue(state.round.votedRate);
   const isActive = state.round.activePlayerId === player.id;
+  const currentBankBuyer = selectCurrentBankBuyer(state);
+
+  const overviewCards = (
+    <div className="player-overview-grid">
+      <ActionPanel title="Goods" subtitle="Your supply on the table." tone="player">
+        <ResourceTokenGroup title="Goods" resources={player.goods} definitions={state.config.resources} tone="player" />
+      </ActionPanel>
+
+      <ActionPanel title="Role & Pressure" subtitle="Specialty, upkeep pressure, and owned engine." tone="player">
+        <div className="faction-card">
+          <div className="faction-banner">{state.config.roles[player.role].name}</div>
+          <p>{state.config.roles[player.role].description}</p>
+          <div className="faction-meta">
+            <span className="status-chip">Life Cost {selectLifeCostIndex(state)} Notes</span>
+            <span className="status-chip">Life Units {upkeep.lifeUnitsRequired}</span>
+            <span className={`status-chip ${upkeep.status === "coverable" ? "status-chip-good" : "status-chip-risk"}`}>
+              {upkeep.status}
+            </span>
+          </div>
+          <p className="tiny-note">
+            Upgrades: {player.ownedUpgrades.length > 0 ? player.ownedUpgrades.map((upgrade) => upgrade.name).join(", ") : "None"}
+          </p>
+        </div>
+      </ActionPanel>
+
+      <ActionPanel title="Debt & Savings" subtitle="Loan and deposit tokens on your mat." tone="player">
+        <div className="token-strip">
+          {player.loans.map((loan) => (
+            <LoanToken key={loan.id} loan={loan} compact />
+          ))}
+          {player.deposits.map((deposit) => (
+            <DepositToken key={deposit.id} deposit={deposit} compact />
+          ))}
+        </div>
+      </ActionPanel>
+    </div>
+  );
+
+  let scene: React.ReactNode;
+
+  if (state.round.phase === "policyVote") {
+    scene = (
+      <SceneShell
+        title="Waiting For Policy Vote"
+        subtitle="Policy is handled on the shared board. Once all votes are in, resolve the vote and the active player begins production."
+      >
+        <div className="scene-stat-row">
+          <div className="mini-card">
+            <p className="track-label">Your Role</p>
+            <p>{state.config.roles[player.role].name}</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Your Vote</p>
+            <p>{state.round.policyVotes[player.id] ?? "Not cast"}</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Chair</p>
+            <p>{state.players[state.round.policyChairPlayerId].name}</p>
+          </div>
+        </div>
+      </SceneShell>
+    );
+  } else if (state.round.phase === "playerTurns" && isActive && state.round.activePlayerStage === "production") {
+    scene = (
+      <SceneShell
+        title="Production Step"
+        subtitle="Use your production actions sequentially, then advance to the market step."
+      >
+        <div className="scene-stat-row">
+          <div className="mini-card">
+            <p className="track-label">Specialty</p>
+            <p>{state.config.resources[specialty].name}</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Normal Actions Used</p>
+            <p>{player.turnActivity.normalProductionActionsUsed} / 2</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Flex Action</p>
+            <p>{player.satisfiedUpkeepLastRound ? (player.turnActivity.flexProductionUsed ? "Used" : "Available") : "Locked"}</p>
+          </div>
+        </div>
+
+        <div className="scene-form-grid">
+          <label className="control-stack">
+            <span>Good</span>
+            <select value={resourceId} onChange={(event) => setResourceId(event.target.value as ResourceId)}>
+              {RESOURCE_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {state.config.resources[id].name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="control-stack">
+            <span>Use Flex</span>
+            <select value={String(useFlex)} onChange={(event) => setUseFlex(event.target.value === "true")}>
+              <option value="false">Normal Action</option>
+              <option value="true">Flex Action</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="scene-button-row">
+          <button onClick={() => dispatch({ type: "produceGood", playerId: player.id, resourceId, useFlex })}>Produce</button>
+          <button onClick={() => dispatch({ type: "advancePlayerStage" })}>Go To Market Step</button>
+        </div>
+      </SceneShell>
+    );
+  } else if (state.round.phase === "playerTurns" && isActive && state.round.activePlayerStage === "market") {
+    scene = (
+      <SceneShell
+        title="Market / Finance / Build"
+        subtitle="Choose one of the available action families, resolve it, then end your turn."
+      >
+        <div className="scene-tabs-grid">
+          <div className="action-panel action-panel-player">
+            <div className="zone-heading">
+              <h3>Trade</h3>
+              <p>Record a trade you initiate with another player.</p>
+            </div>
+            <div className="scene-form-grid">
+              <label className="control-stack">
+                <span>Target</span>
+                <select value={tradeTargetId} onChange={(event) => setTradeTargetId(event.target.value)}>
+                  {state.playerOrder
+                    .filter((playerId) => playerId !== player.id)
+                    .map((playerId) => (
+                      <option key={playerId} value={playerId}>
+                        {state.players[playerId].name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="control-stack">
+                <span>Good</span>
+                <select value={resourceId} onChange={(event) => setResourceId(event.target.value as ResourceId)}>
+                  {RESOURCE_IDS.map((id) => (
+                    <option key={id} value={id}>
+                      {state.config.resources[id].name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="control-stack">
+                <span>Qty</span>
+                <input value={tradeQuantity} onChange={(event) => setTradeQuantity(event.target.value)} type="number" min="1" />
+              </label>
+              <label className="control-stack">
+                <span>Notes</span>
+                <input value={tradeNotes} onChange={(event) => setTradeNotes(event.target.value)} type="number" min="0" />
+              </label>
+              <label className="control-stack">
+                <span>Bits</span>
+                <input value={tradeBits} onChange={(event) => setTradeBits(event.target.value)} type="number" min="0" />
+              </label>
+            </div>
+            <button
+              onClick={() =>
+                dispatch({
+                  type: "recordTrade",
+                  initiatorPlayerId: player.id,
+                  otherPlayerId: tradeTargetId,
+                  resourceId,
+                  quantity: Number(tradeQuantity),
+                  totalNotes: Number(tradeNotes),
+                  totalBits: Number(tradeBits)
+                })
+              }
+            >
+              Record Trade
+            </button>
+          </div>
+
+          <div className="action-panel action-panel-player">
+            <div className="zone-heading">
+              <h3>Finance</h3>
+              <p>Borrow once, deposit once, or repay any loan token.</p>
+            </div>
+            <div className="scene-button-stack">
+              <button onClick={() => dispatch({ type: "takeLoan", playerId: player.id })}>Borrow 10 Notes</button>
+              <button onClick={() => dispatch({ type: "createDeposit", playerId: player.id })}>Deposit 10 Notes</button>
+              {player.loans.map((loan) => (
+                <button key={loan.id} onClick={() => dispatch({ type: "repayLoan", playerId: player.id, loanId: loan.id })}>
+                  Repay {loan.id}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="action-panel action-panel-player">
+            <div className="zone-heading">
+              <h3>Upgrade</h3>
+              <p>Buy at most one production upgrade this turn.</p>
+            </div>
+            <div className="scene-button-stack">
+              {state.upgradeMarketRow.map((card) => (
+                <button key={card.id} onClick={() => dispatch({ type: "buyUpgrade", playerId: player.id, upgradeCardId: card.id })}>
+                  Buy {card.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="scene-button-row">
+          <button onClick={() => dispatch({ type: "endPlayerTurn" })}>End Turn</button>
+        </div>
+      </SceneShell>
+    );
+  } else if (state.round.phase === "playerTurns") {
+    scene = (
+      <SceneShell
+        title="Waiting On Another Player"
+        subtitle="Keep your board visible, but only concise rival info is needed until the turn comes back around."
+      >
+        <div className="scene-stat-row">
+          <div className="mini-card">
+            <p className="track-label">Active Player</p>
+            <p>{state.round.activePlayerId ? state.players[state.round.activePlayerId].name : "None"}</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Stage</p>
+            <p>{state.round.activePlayerStage ?? "None"}</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Your Next Concern</p>
+            <p>Watch prices, bank demand, and your upkeep outlook.</p>
+          </div>
+        </div>
+      </SceneShell>
+    );
+  } else if (state.round.phase === "centralBank") {
+    scene = (
+      <SceneShell
+        title={currentBankBuyer === player.id ? "Your Bank Sale Window" : "Central Bank Buying"}
+        subtitle="Bank buys in order starting left of the chair, paying discovered Notes prices or anchors."
+      >
+        <div className="scene-stat-row">
+          <div className="mini-card">
+            <p className="track-label">Current Buyer</p>
+            <p>{currentBankBuyer ? state.players[currentBankBuyer].name : "None"}</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">You Are Up</p>
+            <p>{currentBankBuyer === player.id ? "Yes" : "No"}</p>
+          </div>
+        </div>
+
+        {currentBankBuyer === player.id ? (
+          <>
+            <div className="scene-form-grid">
+              <label className="control-stack">
+                <span>Sell Good</span>
+                <select value={bankSellResource} onChange={(event) => setBankSellResource(event.target.value as ResourceId)}>
+                  {RESOURCE_IDS.map((id) => (
+                    <option key={id} value={id}>
+                      {state.config.resources[id].name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="control-stack">
+                <span>Qty</span>
+                <input value={bankSellQuantity} onChange={(event) => setBankSellQuantity(event.target.value)} type="number" min="1" />
+              </label>
+            </div>
+            <div className="scene-button-row">
+              <button
+                onClick={() =>
+                  dispatch({
+                    type: "bankBuy",
+                    playerId: player.id,
+                    resourceId: bankSellResource,
+                    quantity: Number(bankSellQuantity)
+                  })
+                }
+              >
+                Sell To Bank
+              </button>
+              <button onClick={() => dispatch({ type: "advanceBankBuyer" })}>Pass To Next Seller</button>
+            </div>
+          </>
+        ) : (
+          <div className="scene-button-row">
+            <button onClick={() => dispatch({ type: "advanceBankBuyer" })}>Advance Bank Buyer</button>
+          </div>
+        )}
+      </SceneShell>
+    );
+  } else if (state.round.phase === "settlement") {
+    scene = (
+      <SceneShell
+        title="Settlement"
+        subtitle="Pay two Life Units, then settle interest or convert unpaid amounts into arrears."
+      >
+        <div className="scene-stat-row">
+          <div className="mini-card">
+            <p className="track-label">Life Units Paid</p>
+            <p>{state.round.settlement[player.id].lifeUnitsPaid} / 2</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Interest / Loan</p>
+            <p>{interestDue} Notes</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Arrears</p>
+            <p>{player.arrears}</p>
+          </div>
+        </div>
+
+        <div className="scene-button-row">
+          <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "grain" })}>Pay Grain</button>
+          <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "fuel" })}>Pay Fuel</button>
+          <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "notes" })}>
+            Pay {selectLifeCostIndex(state)} Notes
+          </button>
+        </div>
+
+        <div className="scene-button-stack">
+          {player.loans.map((loan) => (
+            <button key={loan.id} onClick={() => dispatch({ type: "payLoanInterest", playerId: player.id, loanId: loan.id })}>
+              Pay Interest {loan.id}
+            </button>
+          ))}
+        </div>
+
+        <div className="scene-form-grid">
+          <label className="control-stack">
+            <span>Shortfall Loan</span>
+            <select value={shortfallLoanId} onChange={(event) => setShortfallLoanId(event.target.value)}>
+              {player.loans.map((loan) => (
+                <option key={loan.id} value={loan.id}>
+                  {loan.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="control-stack">
+            <span>Surrendered Item</span>
+            <input value={shortfallLabel} onChange={(event) => setShortfallLabel(event.target.value)} />
+          </label>
+          <label className="control-stack">
+            <span>Auction Proceeds</span>
+            <input value={auctionProceeds} onChange={(event) => setAuctionProceeds(event.target.value)} type="number" min="0" />
+          </label>
+        </div>
+
+        <div className="scene-button-row">
+          <button
+            onClick={() =>
+              dispatch({
+                type: "resolveInterestShortfall",
+                playerId: player.id,
+                loanId: shortfallLoanId,
+                surrenderedLabel: shortfallLabel,
+                auctionProceeds: Number(auctionProceeds)
+              })
+            }
+          >
+            Resolve Shortfall
+          </button>
+        </div>
+      </SceneShell>
+    );
+  } else {
+    scene = (
+      <SceneShell
+        title="Repricing / End Round"
+        subtitle="The shared board handles anchor adjustments and round reset. Your board becomes a concise end-of-round reference."
+      >
+        <div className="scene-stat-row">
+          <div className="mini-card">
+            <p className="track-label">Upkeep Outcome</p>
+            <p>{player.satisfiedUpkeepThisRound ? "Satisfied" : "Not Yet Satisfied"}</p>
+          </div>
+          <div className="mini-card">
+            <p className="track-label">Next Flex Action</p>
+            <p>{player.satisfiedUpkeepThisRound ? "Unlocked next round" : "Locked next round"}</p>
+          </div>
+        </div>
+      </SceneShell>
+    );
+  }
 
   return (
     <section className={`board player-board ${isActive ? "is-active-player" : ""} ${isLocalPlayer ? "player-board-local" : ""}`}>
@@ -56,271 +466,9 @@ export function PlayerBoard({
         </div>
       </div>
 
-      <div className="player-board-grid">
-        <ActionPanel title="Goods" subtitle="Only Grain, Fuel, Lumber, and Labor exist in this prototype." tone="player">
-          <ResourceTokenGroup title="Goods" resources={player.goods} definitions={state.config.resources} tone="player" />
-        </ActionPanel>
-
-        <ActionPanel title="Role & Upkeep" subtitle="Production specialty and next life-cost pressure." tone="player">
-          <div className="faction-card">
-            <div className="faction-banner">{state.config.roles[player.role].name}</div>
-            <p>{state.config.roles[player.role].description}</p>
-            <div className="faction-meta">
-              <span className="status-chip">Life Units: {upkeep.lifeUnitsRequired}</span>
-              <span className="status-chip">Life Cost: {selectLifeCostIndex(state)} Notes</span>
-              <span className={`status-chip ${upkeep.status === "coverable" ? "status-chip-good" : "status-chip-risk"}`}>
-                {upkeep.status}
-              </span>
-            </div>
-          </div>
-        </ActionPanel>
-
-        <ActionPanel title="Loans" subtitle={`Each loan is 10 Notes. Interest this round: ${interestDue} per loan.`} tone="player">
-          <div className="token-strip">
-            {player.loans.map((loan) => (
-              <LoanToken key={loan.id} loan={loan} compact />
-            ))}
-          </div>
-        </ActionPanel>
-
-        <ActionPanel title="Deposits" subtitle="Each deposit is 10 Notes and returns next round at issue-time rate." tone="player">
-          <div className="token-strip">
-            {player.deposits.map((deposit) => (
-              <DepositToken key={deposit.id} deposit={deposit} compact />
-            ))}
-          </div>
-        </ActionPanel>
-
-        <ActionPanel title="Owned Upgrades" subtitle="Production boosts only; first matching production action each turn gets +1." tone="player">
-          <div className="card-row">
-            {player.ownedUpgrades.length === 0 ? (
-              <article className="game-card muted-card">
-                <p>No upgrades owned.</p>
-              </article>
-            ) : (
-              player.ownedUpgrades.map((upgrade) => (
-                <article key={upgrade.id} className="game-card upgrade-card owned-card">
-                  <p className="game-card-kicker">Owned Upgrade</p>
-                  <h3>{upgrade.name}</h3>
-                  <p>{upgrade.description}</p>
-                </article>
-              ))
-            )}
-          </div>
-        </ActionPanel>
-
-        <ActionPanel
-          title="Production Step"
-          subtitle="First do your production actions in sequence, then move to market."
-          tone="player"
-        >
-          <div className="player-action-grid">
-            <label className="control-stack">
-              <span>Produce Good</span>
-              <select value={resourceId} onChange={(event) => setResourceId(event.target.value as ResourceId)}>
-                {RESOURCE_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {state.config.resources[id].name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="control-stack">
-              <span>Use Flex Action</span>
-              <select value={String(useFlex)} onChange={(event) => setUseFlex(event.target.value === "true")}>
-                <option value="false">No</option>
-                <option value="true">Yes</option>
-              </select>
-            </label>
-            <div className="mini-card">
-              <p>Normal Actions Used: {player.turnActivity.normalProductionActionsUsed}/2</p>
-              <p>Flex Used: {player.turnActivity.flexProductionUsed ? "Yes" : "No"}</p>
-              <p>Last Upkeep Satisfied: {player.satisfiedUpkeepLastRound ? "Yes" : "No"}</p>
-            </div>
-            <div className="embedded-action-row embedded-action-row-wide">
-              <button onClick={() => dispatch({ type: "produceGood", playerId: player.id, resourceId, useFlex })} disabled={!isActive}>
-                Produce
-              </button>
-              <button onClick={() => dispatch({ type: "advancePlayerStage" })} disabled={!isActive || state.round.activePlayerStage !== "production"}>
-                Move To Market Step
-              </button>
-            </div>
-          </div>
-        </ActionPanel>
-
-        <ActionPanel
-          title="Market / Finance / Build"
-          subtitle="After production, choose trade, finance, upgrade, and then end turn."
-          tone="player"
-        >
-          <div className="player-action-grid">
-            <label className="control-stack">
-              <span>Trade Target</span>
-              <select value={tradeTargetId} onChange={(event) => setTradeTargetId(event.target.value)}>
-                {state.playerOrder.filter((playerId) => playerId !== player.id).map((playerId) => (
-                  <option key={playerId} value={playerId}>
-                    {state.players[playerId].name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="control-stack">
-              <span>Trade Good</span>
-              <select value={resourceId} onChange={(event) => setResourceId(event.target.value as ResourceId)}>
-                {RESOURCE_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {state.config.resources[id].name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="control-stack">
-              <span>Qty</span>
-              <input value={tradeQuantity} onChange={(event) => setTradeQuantity(event.target.value)} type="number" min="1" />
-            </label>
-            <label className="control-stack">
-              <span>Total Notes</span>
-              <input value={tradeNotes} onChange={(event) => setTradeNotes(event.target.value)} type="number" min="0" />
-            </label>
-            <label className="control-stack">
-              <span>Total Bits</span>
-              <input value={tradeBits} onChange={(event) => setTradeBits(event.target.value)} type="number" min="0" />
-            </label>
-            <div className="embedded-action-row embedded-action-row-wide">
-              <button
-                disabled={!isActive}
-                onClick={() =>
-                  dispatch({
-                    type: "recordTrade",
-                    initiatorPlayerId: player.id,
-                    otherPlayerId: tradeTargetId,
-                    resourceId,
-                    quantity: Number(tradeQuantity),
-                    totalNotes: Number(tradeNotes),
-                    totalBits: Number(tradeBits)
-                  })
-                }
-              >
-                Record Trade
-              </button>
-              <button disabled={!isActive} onClick={() => dispatch({ type: "takeLoan", playerId: player.id })}>
-                Borrow 10 Notes
-              </button>
-              <button disabled={!isActive} onClick={() => dispatch({ type: "createDeposit", playerId: player.id })}>
-                Deposit 10 Notes
-              </button>
-            </div>
-            <div className="embedded-action-row embedded-action-row-wide">
-              {player.loans.map((loan) => (
-                <button key={loan.id} disabled={!isActive} onClick={() => dispatch({ type: "repayLoan", playerId: player.id, loanId: loan.id })}>
-                  Repay {loan.id}
-                </button>
-              ))}
-              {state.upgradeMarketRow.map((card) => (
-                <button
-                  key={card.id}
-                  disabled={!isActive}
-                  onClick={() => dispatch({ type: "buyUpgrade", playerId: player.id, upgradeCardId: card.id })}
-                >
-                  Buy {card.name}
-                </button>
-              ))}
-              <button disabled={!isActive} onClick={() => dispatch({ type: "endPlayerTurn" })}>
-                End Turn
-              </button>
-            </div>
-          </div>
-        </ActionPanel>
-
-        <ActionPanel title="Settlement" subtitle="Pay 2 Life Units and settle each loan's interest at the voted rate." tone="player">
-          <div className="player-action-grid">
-            <div className="mini-card">
-              <p>Life Units Paid: {state.round.settlement[player.id].lifeUnitsPaid}/2</p>
-              <p>Interest Rate: {state.round.votedRate}%</p>
-              <p>Interest / Loan: {interestDue} Notes</p>
-            </div>
-            <div className="embedded-action-row embedded-action-row-wide">
-              <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "grain" })}>Pay Life With Grain</button>
-              <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "fuel" })}>Pay Life With Fuel</button>
-              <button onClick={() => dispatch({ type: "payLife", playerId: player.id, payment: "notes" })}>
-                Pay Life With {selectLifeCostIndex(state)} Notes
-              </button>
-            </div>
-            <div className="embedded-action-row embedded-action-row-wide">
-              {player.loans.map((loan) => (
-                <button key={loan.id} onClick={() => dispatch({ type: "payLoanInterest", playerId: player.id, loanId: loan.id })}>
-                  Pay Interest {loan.id}
-                </button>
-              ))}
-            </div>
-            <label className="control-stack">
-              <span>Shortfall Loan</span>
-              <select value={shortfallLoanId} onChange={(event) => setShortfallLoanId(event.target.value)}>
-                {player.loans.map((loan) => (
-                  <option key={loan.id} value={loan.id}>
-                    {loan.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="control-stack">
-              <span>Surrendered Item</span>
-              <input value={shortfallLabel} onChange={(event) => setShortfallLabel(event.target.value)} />
-            </label>
-            <label className="control-stack">
-              <span>Auction Proceeds</span>
-              <input value={auctionProceeds} onChange={(event) => setAuctionProceeds(event.target.value)} type="number" min="0" />
-            </label>
-            <div className="embedded-action-row embedded-action-row-wide">
-              <button
-                onClick={() =>
-                  dispatch({
-                    type: "resolveInterestShortfall",
-                    playerId: player.id,
-                    loanId: shortfallLoanId,
-                    surrenderedLabel: shortfallLabel,
-                    auctionProceeds: Number(auctionProceeds)
-                  })
-                }
-              >
-                Resolve Interest Shortfall
-              </button>
-            </div>
-          </div>
-        </ActionPanel>
-
-        <ActionPanel title="Bank Sale" subtitle="During Central Bank Turn, the current bank buyer sells to the bank from here." tone="player">
-          <div className="player-action-grid">
-            <label className="control-stack">
-              <span>Bank Good</span>
-              <select value={bankSellResource} onChange={(event) => setBankSellResource(event.target.value as ResourceId)}>
-                {RESOURCE_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {state.config.resources[id].name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="control-stack">
-              <span>Qty</span>
-              <input value={bankSellQuantity} onChange={(event) => setBankSellQuantity(event.target.value)} type="number" min="1" />
-            </label>
-            <div className="embedded-action-row embedded-action-row-wide">
-              <button
-                onClick={() =>
-                  dispatch({
-                    type: "bankBuy",
-                    playerId: player.id,
-                    resourceId: bankSellResource,
-                    quantity: Number(bankSellQuantity)
-                  })
-                }
-              >
-                Sell To Bank
-              </button>
-            </div>
-          </div>
-        </ActionPanel>
+      <div className="player-focus-layout">
+        {scene}
+        {overviewCards}
       </div>
     </section>
   );
