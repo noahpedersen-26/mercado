@@ -2,7 +2,7 @@ import type { BankDemandCard as BankDemandCardType } from "@/lib/game/types";
 
 export function BankDemandCard({ card }: { card: BankDemandCardType | null }) {
   return (
-    <article className={`game-card demand-card ${card ? "" : "muted-card"}`}>
+    <article className={`game-card demand-card board-card ${card ? "" : "muted-card"}`}>
       <p className="game-card-kicker">Bank Demand Card</p>
       <h3>{card?.title ?? "Demand Not Revealed"}</h3>
       <p>{card?.description ?? "Reveal one demand card during the Central Bank Turn."}</p>

@@ -8,7 +8,23 @@ import { GameLog } from "./GameLog";
 import { MarketBankBoard } from "./MarketBankBoard";
 import { OpponentSummary } from "./OpponentSummary";
 import { PlayerBoard } from "./PlayerBoard";
-import { TurnGuidePanel } from "./TurnGuidePanel";
+
+function formatPhaseLabel(phase: string) {
+  switch (phase) {
+    case "policyVote":
+      return "Policy Vote";
+    case "playerTurns":
+      return "Player Turns";
+    case "centralBank":
+      return "Central Bank";
+    case "settlement":
+      return "Settlement";
+    case "repricing":
+      return "Repricing";
+    default:
+      return phase;
+  }
+}
 
 export function GameTable() {
   const [state, dispatch] = useReducer(gameReducer, initialGameState);
@@ -17,57 +33,51 @@ export function GameTable() {
   const opponents = state.playerOrder.filter((playerId) => playerId !== localPlayerId);
 
   return (
-    <main className="table-shell">
-      <header className="table-header">
+    <main className="table-shell board-first-shell">
+      <header className="table-header board-first-header">
         <div>
-          <p className="eyebrow">Manual Tabletop Playtest Prototype</p>
+          <p className="eyebrow">Manual Tabletop Prototype</p>
           <h1 className="table-title">Debank</h1>
           <p className="table-subtitle">
-            A market game about price discovery, debt Notes created through lending and bank buying, and Bits as fixed
-            hard money. The shared board carries policy, pricing, bank demand, and repricing pressure while each player
-            acts from a personal board.
+            A board-first market game about debt Notes, hard-money Bits, bank demand, and price discovery.
           </p>
         </div>
-        <div className="table-status-pill">
+
+        <div className="hud-pill-row">
           <span>Round {state.round.roundNumber}</span>
-          <span>{state.round.phase}</span>
+          <span>{formatPhaseLabel(state.round.phase)}</span>
           <span>Life Cost {lifeCostIndex}</span>
+          <span>Chair {state.players[state.round.policyChairPlayerId].name}</span>
         </div>
       </header>
 
-      <section className="game-table">
-        <div className="focus-layout">
-          <div className="focus-main-column">
-            <PlayerBoard state={state} player={state.players[localPlayerId]} dispatch={dispatch} isLocalPlayer />
-            <GameLog state={state} />
+      <section className="board-first-layout">
+        <MarketBankBoard state={state} dispatch={dispatch} />
+
+        <section className="board opponent-strip-board">
+          <div className="board-strip-header">
+            <div>
+              <p className="eyebrow">Table Watch</p>
+              <h2>Other Houses</h2>
+            </div>
+            <p className="board-subtitle">Reduced to quick-read badges so your mat stays central.</p>
           </div>
 
-          <div className="focus-side-column">
-            <TurnGuidePanel state={state} localPlayerId={localPlayerId} />
-            <MarketBankBoard state={state} dispatch={dispatch} compact />
-
-            <section className="board opponents-board">
-              <div className="board-header">
-                <div>
-                  <p className="eyebrow">Table View</p>
-                  <h2>Other Players</h2>
-                  <p className="board-subtitle">Compact role and upgrade summaries keep the focus on your own board.</p>
-                </div>
-              </div>
-
-              <div className="opponents-list">
-                {opponents.map((playerId) => (
-                  <OpponentSummary
-                    key={playerId}
-                    state={state}
-                    player={state.players[playerId]}
-                    isActive={state.round.activePlayerId === playerId}
-                  />
-                ))}
-              </div>
-            </section>
+          <div className="opponent-badge-row">
+            {opponents.map((playerId) => (
+              <OpponentSummary
+                key={playerId}
+                state={state}
+                player={state.players[playerId]}
+                isActive={state.round.activePlayerId === playerId}
+              />
+            ))}
           </div>
-        </div>
+        </section>
+
+        <PlayerBoard state={state} player={state.players[localPlayerId]} dispatch={dispatch} isLocalPlayer />
+
+        <GameLog state={state} />
       </section>
     </main>
   );

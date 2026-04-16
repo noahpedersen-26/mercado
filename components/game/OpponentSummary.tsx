@@ -1,5 +1,4 @@
 import type { GameState, PlayerState } from "@/lib/game/types";
-import { CurrencyToken } from "./CurrencyToken";
 
 export function OpponentSummary({
   state,
@@ -11,10 +10,10 @@ export function OpponentSummary({
   isActive: boolean;
 }) {
   return (
-    <article className={`opponent-card ${isActive ? "opponent-card-active" : ""}`}>
-      <div className="opponent-card-header">
+    <article className={`opponent-badge ${isActive ? "opponent-badge-active" : ""}`}>
+      <div className="opponent-badge-head">
         <div>
-          <p className="game-card-kicker">Opponent</p>
+          <p className="game-card-kicker">House</p>
           <h3>{player.name}</h3>
           <p className="tiny-note">
             {state.config.roles[player.role].name} · {state.config.resources[state.config.roles[player.role].specialty].name}
@@ -23,23 +22,19 @@ export function OpponentSummary({
         {isActive ? <span className="status-chip status-chip-active">Active</span> : null}
       </div>
 
-      <div className="opponent-meta-row">
-        <CurrencyToken label="Notes" value={player.notes} tone="ivory" />
-        <CurrencyToken label="Bits" value={player.bits} tone="brass" />
-        <CurrencyToken label="Arrears" value={player.arrears} tone="red" />
+      <div className="opponent-badge-stats">
+        <span>N {player.notes}</span>
+        <span>B {player.bits}</span>
+        <span>L {player.loans.length}</span>
+        <span>D {player.deposits.length}</span>
+        <span>U {player.ownedUpgrades.length}</span>
       </div>
 
-      <div className="opponent-stats-grid">
-        <div className="mini-card">
-          <p className="track-label">Goods</p>
-          <p>
-            G {player.goods.grain} · F {player.goods.fuel} · L {player.goods.lumber} · La {player.goods.labor}
-          </p>
-        </div>
-        <div className="mini-card">
-          <p className="track-label">Upgrades</p>
-          <p>{player.ownedUpgrades.length > 0 ? player.ownedUpgrades.map((upgrade) => upgrade.name).join(", ") : "None"}</p>
-        </div>
+      <div className="opponent-badge-foot">
+        <span>G {player.goods.grain}</span>
+        <span>F {player.goods.fuel}</span>
+        <span>Lm {player.goods.lumber}</span>
+        <span>Lb {player.goods.labor}</span>
       </div>
     </article>
   );

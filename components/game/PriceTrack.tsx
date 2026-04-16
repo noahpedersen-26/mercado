@@ -8,18 +8,19 @@ export function PriceTrack({
   definitions: Record<ResourceId, ResourceDefinition>;
 }) {
   return (
-    <section>
+    <section className="price-track-strip">
       <div className="zone-heading">
-        <h3>Notes Price Discovery</h3>
-        <p>Direct good-for-Notes trades discover price. Otherwise, use anchor price.</p>
+        <h3>Price Track</h3>
+        <p>Direct Notes trades discover price. Otherwise, use anchor price.</p>
       </div>
-      <div className="price-tile-row">
+      <div className="price-track-row">
         {(Object.entries(prices) as Array<[ResourceId, { anchor: number; discovered: number | null }]>).map(
           ([resourceId, price]) => (
-            <article key={resourceId} className="price-tile">
+            <article key={resourceId} className="price-track-tile">
               <p className="price-tile-title">{definitions[resourceId].name}</p>
-              <p>Anchor: {price.anchor} Notes</p>
-              <p>Discovered: {price.discovered ?? "-"}</p>
+              <strong>{price.discovered ?? price.anchor}</strong>
+              <p>A {price.anchor}</p>
+              <p>D {price.discovered ?? "-"}</p>
             </article>
           )
         )}
