@@ -174,12 +174,16 @@ select {
   background: linear-gradient(180deg, rgba(255, 250, 239, 0.32), rgba(229, 208, 169, 0.12));
 }
 
+.shared-board-frame {
+  padding-top: 48px;
+}
+
 .board-medallion {
   position: absolute;
-  top: -18px;
-  left: 20px;
-  width: 96px;
-  height: 96px;
+  top: -10px;
+  left: 16px;
+  width: 82px;
+  height: 82px;
   border-radius: 999px;
   border: 3px solid var(--board-edge);
   background: linear-gradient(180deg, #f8ebca 0%, #d7b57a 100%);
@@ -191,7 +195,7 @@ select {
 
 .board-medallion strong {
   display: block;
-  font-size: 2rem;
+  font-size: 1.7rem;
   line-height: 1;
 }
 
@@ -230,24 +234,23 @@ select {
 }
 
 .shared-board-top {
-  grid-template-columns: 1.45fr 1fr 0.62fr;
-  margin-top: 20px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(170px, 0.62fr);
 }
 
 .shared-board-main {
-  grid-template-columns: 1.45fr 0.95fr;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.95fr);
 }
 
 .shared-board-bottom {
-  grid-template-columns: 0.95fr 1.2fr 0.9fr;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr) minmax(250px, 0.9fr);
 }
 
 .player-mat-top {
-  grid-template-columns: 0.52fr 1.2fr 0.72fr;
+  grid-template-columns: minmax(200px, 0.52fr) minmax(0, 1.2fr) minmax(240px, 0.72fr);
 }
 
 .player-mat-bottom {
-  grid-template-columns: 1.5fr 0.88fr;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.88fr);
 }
 
 .board-compartment,
@@ -277,6 +280,7 @@ select {
   position: relative;
   padding: 12px;
   min-height: 100%;
+  overflow: hidden;
 }
 
 .compartment-active {
@@ -456,7 +460,7 @@ select {
 }
 
 .price-grid-board {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(88px, 1fr));
 }
 
 .price-grid-tile,
@@ -582,7 +586,7 @@ select {
 }
 
 .market-action-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .single-mode-grid,
@@ -607,7 +611,7 @@ select {
 }
 
 .resource-tray {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(78px, 1fr));
 }
 
 .tray-token {
@@ -667,7 +671,7 @@ select {
 }
 
 .ticker-row {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .ticker-card {
@@ -695,13 +699,20 @@ select {
   opacity: 0.8;
 }
 
-@media (max-width: 1220px) {
+@media (max-width: 1360px) {
   .shared-board-top,
   .shared-board-main,
   .shared-board-bottom,
   .player-mat-top,
-  .player-mat-bottom,
-  .market-action-grid {
+  .player-mat-bottom {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1220px) {
+  .market-action-grid,
+  .player-mat-top,
+  .player-mat-bottom {
     grid-template-columns: 1fr;
   }
 
@@ -756,5 +767,9 @@ select {
   .board-medallion {
     position: static;
     margin-bottom: 6px;
+  }
+
+  .shared-board-frame {
+    padding-top: 12px;
   }
 }

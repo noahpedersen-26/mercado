@@ -3,7 +3,8 @@
 import { useReducer } from "react";
 import { gameReducer } from "@/lib/game/reducer";
 import { initialGameState } from "@/lib/game/sample-data";
-import { selectLifeCostIndex } from "@/lib/game/selectors";
+import { selectCurrentBankBuyer, selectLifeCostIndex, selectLoanInterestDue } from "@/lib/game/selectors";
+import type { GameState, PlayerId } from "@/lib/game/types";
 import { GameLog } from "./GameLog";
 import { MarketBankBoard } from "./MarketBankBoard";
 import { OpponentSummary } from "./OpponentSummary";
@@ -26,11 +27,37 @@ function formatPhaseLabel(phase: string) {
   }
 }
 
+function getFocusPlayerId(state: GameState, fallbackPlayerId: PlayerId): PlayerId {
+  if (state.round.phase === "playerTurns") {
+    return state.round.activePlayerId ?? fallbackPlayerId;
+  }
+
+  if (state.round.phase === "centralBank") {
+    return selectCurrentBankBuyer(state) ?? fallbackPlayerId;
+  }
+
+  if (state.round.phase === "settlement") {
+    const interestDue = selectLoanInterestDue(state.round.votedRate);
+    const unsettledPlayer = state.playerOrder.find((playerId) => {
+      const settlement = state.round.settlement[playerId];
+      const player = state.players[playerId];
+      const lifeOpen = settlement.lifeUnitsPaid < 2;
+      const interestOpen = interestDue > 0 && settlement.interestPaidLoanIds.length < player.loans.length;
+      return lifeOpen || interestOpen;
+    });
+
+    return unsettledPlayer ?? fallbackPlayerId;
+  }
+
+  return fallbackPlayerId;
+}
+
 export function GameTable() {
   const [state, dispatch] = useReducer(gameReducer, initialGameState);
   const lifeCostIndex = selectLifeCostIndex(state);
   const localPlayerId = state.playerOrder[0];
-  const opponents = state.playerOrder.filter((playerId) => playerId !== localPlayerId);
+  const focusPlayerId = getFocusPlayerId(state, localPlayerId);
+  const opponents = state.playerOrder.filter((playerId) => playerId !== focusPlayerId);
 
   return (
     <main className="table-shell board-first-shell">
@@ -48,6 +75,7 @@ export function GameTable() {
           <span>{formatPhaseLabel(state.round.phase)}</span>
           <span>Life Cost {lifeCostIndex}</span>
           <span>Chair {state.players[state.round.policyChairPlayerId].name}</span>
+          <span>Focus {state.players[focusPlayerId].name}</span>
         </div>
       </header>
 
@@ -75,7 +103,12 @@ export function GameTable() {
           </div>
         </section>
 
-        <PlayerBoard state={state} player={state.players[localPlayerId]} dispatch={dispatch} isLocalPlayer />
+        <PlayerBoard
+          state={state}
+          player={state.players[focusPlayerId]}
+          dispatch={dispatch}
+          isLocalPlayer={focusPlayerId === localPlayerId}
+        />
 
         <GameLog state={state} />
       </section>

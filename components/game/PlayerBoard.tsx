@@ -101,7 +101,7 @@ export function PlayerBoard({
       <div className="player-mat-frame">
         <div className="player-mat-top">
           <article className="board-compartment role-plaque">
-            <p className="eyebrow board-kicker">{isLocalPlayer ? "Your Mat" : "Player Mat"}</p>
+            <p className="eyebrow board-kicker">{isLocalPlayer ? "Your Mat" : "Action Mat"}</p>
             <h2>{player.name}</h2>
             <p className="role-name">{state.config.roles[player.role].name}</p>
             <p className="tiny-note">{state.config.roles[player.role].description}</p>
