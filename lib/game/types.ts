@@ -6,6 +6,7 @@ export type RoundPhase = "policyVote" | "playerTurns" | "centralBank" | "settlem
 export type PlayerTurnStage = "production" | "market";
 export type UpgradeType = "grain-mill" | "fuel-rig" | "sawmill" | "hiring-office";
 export type LifePaymentKind = "grain" | "fuel" | "notes";
+export type TradeDirection = "buy" | "sell";
 
 export interface ResourceDefinition {
   id: ResourceId;
@@ -54,6 +55,7 @@ export interface TradeRecord {
   roundNumber: number;
   initiatorPlayerId: PlayerId;
   otherPlayerId: PlayerId;
+  direction: TradeDirection;
   resourceId: ResourceId;
   quantity: number;
   barterResourceId: ResourceId | null;
@@ -106,6 +108,7 @@ export interface RoundState {
   discoveredNotesPrices: Partial<Record<ResourceId, number>>;
   bankDemandCardId: string | null;
   bankBuyOrderIndex: number;
+  bankBoughtThisRound: Partial<Record<ResourceId, number>>;
   notesCreatedThisRound: number;
   settlement: Record<PlayerId, SettlementState>;
 }
@@ -145,6 +148,7 @@ export type Action =
       type: "recordTrade";
       initiatorPlayerId: PlayerId;
       otherPlayerId: PlayerId;
+      direction: TradeDirection;
       resourceId: ResourceId;
       quantity: number;
       barterResourceId: ResourceId | null;

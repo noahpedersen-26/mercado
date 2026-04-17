@@ -53,20 +53,41 @@ export function validateAction(state: GameState, action: Action): string | null 
         return "Trade values cannot be negative.";
       }
 
-      if (state.players[action.otherPlayerId].goods[action.resourceId] < action.quantity) {
+      const initiator = state.players[action.initiatorPlayerId];
+      const other = state.players[action.otherPlayerId];
+
+      if (action.direction === "buy" && other.goods[action.resourceId] < action.quantity) {
         return "Counterparty does not have enough of the incoming good.";
+      }
+
+      if (action.direction === "sell" && initiator.goods[action.resourceId] < action.quantity) {
+        return "Initiator does not have enough of the offered good.";
       }
 
       if (
         action.barterResourceId &&
         action.barterQuantity > 0 &&
-        state.players[action.initiatorPlayerId].goods[action.barterResourceId] < action.barterQuantity
+        action.direction === "buy" &&
+        initiator.goods[action.barterResourceId] < action.barterQuantity
       ) {
         return "Initiator does not have enough of the offered good.";
       }
 
-      if (state.players[action.initiatorPlayerId].notes < action.totalNotes || state.players[action.initiatorPlayerId].bits < action.totalBits) {
+      if (
+        action.barterResourceId &&
+        action.barterQuantity > 0 &&
+        action.direction === "sell" &&
+        other.goods[action.barterResourceId] < action.barterQuantity
+      ) {
+        return "Counterparty does not have enough of the offered barter good.";
+      }
+
+      if (action.direction === "buy" && (initiator.notes < action.totalNotes || initiator.bits < action.totalBits)) {
         return "Initiator does not have enough Notes or Bits.";
+      }
+
+      if (action.direction === "sell" && (other.notes < action.totalNotes || other.bits < action.totalBits)) {
+        return "Counterparty does not have enough Notes or Bits.";
       }
 
       if (action.totalNotes === 0 && action.totalBits === 0 && (!action.barterResourceId || action.barterQuantity <= 0)) {
@@ -130,15 +151,38 @@ export function validateAction(state: GameState, action: Action): string | null 
         ? null
         : "Reveal exactly one demand card at the start of the Central Bank Turn.";
     case "bankBuy":
-      return state.round.phase !== "centralBank"
-        ? "Bank purchases only happen during the Central Bank Turn."
-        : state.round.bankDemandCardId === null
-          ? "Reveal the bank demand card first."
-          : selectCurrentBankBuyer(state) !== action.playerId
-            ? "Bank must buy in order starting left of the Policy Chair."
-            : state.players[action.playerId].goods[action.resourceId] < action.quantity
-              ? "That player does not have enough of the good."
-              : null;
+      if (state.round.phase !== "centralBank") {
+        return "Bank purchases only happen during the Central Bank Turn.";
+      }
+
+      if (state.round.bankDemandCardId === null) {
+        return "Reveal the bank demand card first.";
+      }
+
+      if (selectCurrentBankBuyer(state) !== action.playerId) {
+        return "Bank must buy in order starting left of the Policy Chair.";
+      }
+
+      if (state.players[action.playerId].goods[action.resourceId] < action.quantity) {
+        return "That player does not have enough of the good.";
+      }
+
+      const activeDemandCard =
+        state.bankDemandDeck.find((card) => card.id === state.round.bankDemandCardId) ??
+        state.discardedBankDemandCards.find((card) => card.id === state.round.bankDemandCardId) ??
+        null;
+      const demandAmount = activeDemandCard?.demand[action.resourceId] ?? 0;
+      const alreadyBought = state.round.bankBoughtThisRound[action.resourceId] ?? 0;
+
+      if (demandAmount <= 0) {
+        return "The bank is not buying that good on the revealed demand card.";
+      }
+
+      if (alreadyBought + action.quantity > demandAmount) {
+        return "That sale exceeds the remaining bank demand for this good.";
+      }
+
+      return null;
     case "advanceBankBuyer":
       return state.round.phase === "centralBank" ? null : "Bank order only advances during the Central Bank Turn.";
     case "payLife": {

@@ -47,6 +47,7 @@ export function PlayerBoard({
   const [tradeTargetId, setTradeTargetId] = useState(
     state.playerOrder.find((playerId) => playerId !== player.id) ?? state.playerOrder[0]
   );
+  const [tradeDirection, setTradeDirection] = useState<"buy" | "sell">("buy");
   const [tradeQuantity, setTradeQuantity] = useState("1");
   const [barterResourceId, setBarterResourceId] = useState<ResourceId | "none">("none");
   const [barterQuantity, setBarterQuantity] = useState("0");
@@ -61,6 +62,11 @@ export function PlayerBoard({
   const upkeep = selectUpkeepPreview(state, player.id);
   const interestDue = selectLoanInterestDue(state.round.votedRate);
   const currentBankBuyer = selectCurrentBankBuyer(state);
+  const activeDemandCard =
+    state.bankDemandDeck.find((card) => card.id === state.round.bankDemandCardId) ??
+    state.discardedBankDemandCards.find((card) => card.id === state.round.bankDemandCardId) ??
+    null;
+  const bankDemandedResources = RESOURCE_IDS.filter((id) => (activeDemandCard?.demand[id] ?? 0) > 0);
   const isActive = state.round.activePlayerId === player.id;
   const isProductionTurn = state.round.phase === "playerTurns" && isActive && state.round.activePlayerStage === "production";
   const isMarketTurn = state.round.phase === "playerTurns" && isActive && state.round.activePlayerStage === "market";
@@ -231,6 +237,13 @@ export function PlayerBoard({
                   </div>
                   <div className="scene-form-grid">
                     <label className="control-stack">
+                      <span>Direction</span>
+                      <select value={tradeDirection} onChange={(event) => setTradeDirection(event.target.value as "buy" | "sell")}>
+                        <option value="buy">Buy From Other Player</option>
+                        <option value="sell">Sell To Other Player</option>
+                      </select>
+                    </label>
+                    <label className="control-stack">
                       <span>Other Player</span>
                       <select value={tradeTargetId} onChange={(event) => setTradeTargetId(event.target.value)}>
                         {state.playerOrder
@@ -243,7 +256,7 @@ export function PlayerBoard({
                       </select>
                     </label>
                     <label className="control-stack">
-                      <span>You Receive</span>
+                      <span>{tradeDirection === "buy" ? "You Receive" : "You Sell"}</span>
                       <select value={resourceId} onChange={(event) => setResourceId(event.target.value as ResourceId)}>
                         {RESOURCE_IDS.map((id) => (
                           <option key={id} value={id}>
@@ -253,11 +266,11 @@ export function PlayerBoard({
                       </select>
                     </label>
                     <label className="control-stack">
-                      <span>Receive Qty</span>
+                      <span>{tradeDirection === "buy" ? "Receive Qty" : "Sell Qty"}</span>
                       <input value={tradeQuantity} onChange={(event) => setTradeQuantity(event.target.value)} type="number" min="1" />
                     </label>
                     <label className="control-stack">
-                      <span>You Give</span>
+                      <span>{tradeDirection === "buy" ? "You Give" : "You Receive Back"}</span>
                       <select value={barterResourceId} onChange={(event) => setBarterResourceId(event.target.value as ResourceId | "none")}>
                         <option value="none">No Good</option>
                         {RESOURCE_IDS.map((id) => (
@@ -268,15 +281,15 @@ export function PlayerBoard({
                       </select>
                     </label>
                     <label className="control-stack">
-                      <span>Give Qty</span>
+                      <span>{tradeDirection === "buy" ? "Give Qty" : "Receive Qty"}</span>
                       <input value={barterQuantity} onChange={(event) => setBarterQuantity(event.target.value)} type="number" min="0" />
                     </label>
                     <label className="control-stack">
-                      <span>You Pay Notes</span>
+                      <span>{tradeDirection === "buy" ? "You Pay Notes" : "You Receive Notes"}</span>
                       <input value={tradeNotes} onChange={(event) => setTradeNotes(event.target.value)} type="number" min="0" />
                     </label>
                     <label className="control-stack">
-                      <span>You Pay Bits</span>
+                      <span>{tradeDirection === "buy" ? "You Pay Bits" : "You Receive Bits"}</span>
                       <input value={tradeBits} onChange={(event) => setTradeBits(event.target.value)} type="number" min="0" />
                     </label>
                   </div>
@@ -286,6 +299,7 @@ export function PlayerBoard({
                         type: "recordTrade",
                         initiatorPlayerId: player.id,
                         otherPlayerId: tradeTargetId,
+                        direction: tradeDirection,
                         resourceId,
                         quantity: Number(tradeQuantity),
                         barterResourceId: barterResourceId === "none" ? null : barterResourceId,
@@ -344,7 +358,7 @@ export function PlayerBoard({
                     <label className="control-stack">
                       <span>Good</span>
                       <select value={bankSellResource} onChange={(event) => setBankSellResource(event.target.value as ResourceId)}>
-                        {RESOURCE_IDS.map((id) => (
+                        {(bankDemandedResources.length > 0 ? bankDemandedResources : RESOURCE_IDS).map((id) => (
                           <option key={id} value={id}>
                             {state.config.resources[id].name}
                           </option>
@@ -361,6 +375,16 @@ export function PlayerBoard({
                       />
                     </label>
                   </div>
+                  {activeDemandCard ? (
+                    <p className="tiny-note">
+                      Bank demand this turn:{" "}
+                      {bankDemandedResources.length > 0
+                        ? bankDemandedResources
+                            .map((id) => `${state.config.resources[id].name} x${activeDemandCard.demand[id]}`)
+                            .join(", ")
+                        : "No purchases on this card."}
+                    </p>
+                  ) : null}
                   <div className="scene-button-row">
                     <button
                       onClick={() =>

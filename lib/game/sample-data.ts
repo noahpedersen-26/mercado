@@ -191,6 +191,7 @@ export const initialGameState: GameState = {
     discoveredNotesPrices: {},
     bankDemandCardId: null,
     bankBuyOrderIndex: 0,
+    bankBoughtThisRound: {},
     notesCreatedThisRound: 0,
     settlement: Object.fromEntries(
       playerOrder.map((playerId) => [

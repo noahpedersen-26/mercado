@@ -300,6 +300,7 @@ export function applyAction(state: GameState, action: Action): GameState {
         roundNumber: state.round.roundNumber,
         initiatorPlayerId: action.initiatorPlayerId,
         otherPlayerId: action.otherPlayerId,
+        direction: action.direction,
         resourceId: action.resourceId,
         quantity: action.quantity,
         barterResourceId: action.barterResourceId,
@@ -313,19 +314,54 @@ export function applyAction(state: GameState, action: Action): GameState {
       const seller = state.players[action.otherPlayerId];
       const discoveredNotesPrices = maybeDiscoverNotesPrice(state, trade);
       const discoveredNotesPrice = discoveredNotesPrices[action.resourceId] ?? null;
-      const buyerGoods = {
-        ...buyer.goods,
-        [action.resourceId]: buyer.goods[action.resourceId] + action.quantity
+      const primarySeller = action.direction === "buy" ? seller : buyer;
+      const primaryBuyer = action.direction === "buy" ? buyer : seller;
+      const primarySellerGoods = {
+        ...primarySeller.goods,
+        [action.resourceId]: primarySeller.goods[action.resourceId] - action.quantity
       };
-      const sellerGoods = {
-        ...seller.goods,
-        [action.resourceId]: seller.goods[action.resourceId] - action.quantity
+      const primaryBuyerGoods = {
+        ...primaryBuyer.goods,
+        [action.resourceId]: primaryBuyer.goods[action.resourceId] + action.quantity
       };
 
       if (action.barterResourceId && action.barterQuantity > 0) {
-        buyerGoods[action.barterResourceId] = buyer.goods[action.barterResourceId] - action.barterQuantity;
-        sellerGoods[action.barterResourceId] = seller.goods[action.barterResourceId] + action.barterQuantity;
+        primaryBuyerGoods[action.barterResourceId] = primaryBuyer.goods[action.barterResourceId] - action.barterQuantity;
+        primarySellerGoods[action.barterResourceId] = primarySeller.goods[action.barterResourceId] + action.barterQuantity;
       }
+
+      const initiatorNotes = action.direction === "buy" ? buyer.notes - action.totalNotes : buyer.notes + action.totalNotes;
+      const initiatorBits = action.direction === "buy" ? buyer.bits - action.totalBits : buyer.bits + action.totalBits;
+      const otherNotes = action.direction === "buy" ? seller.notes + action.totalNotes : seller.notes - action.totalNotes;
+      const otherBits = action.direction === "buy" ? seller.bits + action.totalBits : seller.bits - action.totalBits;
+      const initiatorGoods = action.direction === "buy"
+        ? primaryBuyerGoods
+        : primarySellerGoods;
+      const otherGoods = action.direction === "buy"
+        ? primarySellerGoods
+        : primaryBuyerGoods;
+      const tradeMessage =
+        action.direction === "buy"
+          ? `${buyer.name} received ${action.quantity} ${state.config.resources[action.resourceId].name}`
+          : `${buyer.name} sold ${action.quantity} ${state.config.resources[action.resourceId].name}`;
+      const barterMessage =
+        action.barterResourceId && action.barterQuantity > 0
+          ? action.direction === "buy"
+            ? ` by sending ${action.barterQuantity} ${state.config.resources[action.barterResourceId].name}`
+            : ` and received ${action.barterQuantity} ${state.config.resources[action.barterResourceId].name}`
+          : "";
+      const notesMessage =
+        action.totalNotes > 0
+          ? action.direction === "buy"
+            ? ` and paying ${action.totalNotes} Notes`
+            : ` for ${action.totalNotes} Notes`
+          : "";
+      const bitsMessage =
+        action.totalBits > 0
+          ? action.direction === "buy"
+            ? `${action.totalNotes > 0 ? " plus" : " and paying"} ${action.totalBits} Bits`
+            : `${action.totalNotes > 0 ? " plus" : " for"} ${action.totalBits} Bits`
+          : "";
 
       return appendLog(
         {
@@ -334,15 +370,15 @@ export function applyAction(state: GameState, action: Action): GameState {
             ...state.players,
             [action.initiatorPlayerId]: {
               ...buyer,
-              notes: buyer.notes - action.totalNotes,
-              bits: buyer.bits - action.totalBits,
-              goods: buyerGoods
+              notes: initiatorNotes,
+              bits: initiatorBits,
+              goods: initiatorGoods
             },
             [action.otherPlayerId]: {
               ...seller,
-              notes: seller.notes + action.totalNotes,
-              bits: seller.bits + action.totalBits,
-              goods: sellerGoods
+              notes: otherNotes,
+              bits: otherBits,
+              goods: otherGoods
             }
           },
           tradeLog: [...state.tradeLog, { ...trade, discoveredNotesPrice }],
@@ -352,11 +388,7 @@ export function applyAction(state: GameState, action: Action): GameState {
           }
         },
         action.initiatorPlayerId,
-        `${buyer.name} received ${action.quantity} ${state.config.resources[action.resourceId].name}${
-          action.barterResourceId && action.barterQuantity > 0
-            ? ` by sending ${action.barterQuantity} ${state.config.resources[action.barterResourceId].name}`
-            : ""
-        }${action.totalNotes > 0 ? ` and ${action.totalNotes} Notes` : ""}${action.totalBits > 0 ? ` and ${action.totalBits} Bits` : ""}.`
+        `${tradeMessage}${barterMessage}${notesMessage}${bitsMessage}.`
       );
     }
     case "takeLoan": {
@@ -515,6 +547,10 @@ export function applyAction(state: GameState, action: Action): GameState {
           },
           round: {
             ...state.round,
+            bankBoughtThisRound: {
+              ...state.round.bankBoughtThisRound,
+              [action.resourceId]: (state.round.bankBoughtThisRound[action.resourceId] ?? 0) + action.quantity
+            },
             notesCreatedThisRound: state.round.notesCreatedThisRound + payment,
             discoveredNotesPrices: {
               ...state.round.discoveredNotesPrices,
@@ -705,6 +741,7 @@ export function applyAction(state: GameState, action: Action): GameState {
           discoveredNotesPrices: {},
           bankDemandCardId: null,
           bankBuyOrderIndex: 0,
+          bankBoughtThisRound: {},
           notesCreatedThisRound: 0,
           settlement: resetSettlement(state)
         }
